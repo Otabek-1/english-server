@@ -11,3 +11,7 @@
  - Level / gamification
  - Email notification
  - Role (admin/user)
+
+part 4:
+ - tfn => True False Not given
+ - ynn => Yes No Not given
