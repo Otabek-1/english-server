@@ -1,9 +1,12 @@
+import os
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, ARRAY, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
+load_dotenv()
 
-engine = create_engine(url="postgresql://postgres.nipiecblbunczdlyrbfq:Ibr0him$!@aws-1-ap-northeast-1.pooler.supabase.com:6543/postgres")
+engine = create_engine(url=os.getenv("DATABASE_URL"))
 Base = declarative_base()
 SessionLocal = sessionmaker(bind=engine)
 
