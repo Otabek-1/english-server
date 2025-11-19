@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from database.db import get_db, User, ReadingMockAnswer, ReadingMockQuestion
 from auth.auth import verify_role
-from schemas.ReadingMockQuestionSchema import CreateReadingMock, CreateReadingAnswers, UpdateReadingAnswers
+from schemas.ReadingMockQuestionSchema import CreateReadingMock, CreateReadingAnswers, UpdateReadingAnswers, Results
 
 router = APIRouter(prefix="/mock/reading")
 
@@ -162,3 +162,32 @@ def delete_answers(
     db.delete(answer)
     db.commit()
     return {"message": "Answer deleted successfully."}
+
+@router.post("/submit")
+def check_mock(data:Results, db:Session = Depends(get_db)):
+    exists = db.query(ReadingMockQuestion).filter(ReadingMockQuestion.id == data.question_id).first()
+    if not exists:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answers not found.")
+    answers = exists.answers
+    results = dict()
+    results["part1"] = 0
+    results["part2"] = 0
+    results["part3"] = 0
+    results["part4"] = 0
+    results["part5"] = 0
+    for i,ans in enumerate(data.part1):
+        if answers.part1[i].lower() == ans.lower():
+            results["part1"]+=1
+    for i, ans in enumerate(data.part2):
+        if answers.part2[i].lower() == ans.lower():
+            results["part2"]+=1
+    for i, ans in enumerate(data.part3):
+        if answers.part3[i].lower() == ans.lower():
+            results["part3"]+=1
+    for i, ans in enumerate(data.part4):
+        if answers.part4[i].lower() == ans.lower():
+            results["part4"]+=1
+    for i, ans in enumerate(data.part5):
+        if answers.part5[i].lower() == ans.lower():
+            results["part5"]+=1
+    return results
