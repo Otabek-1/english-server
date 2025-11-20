@@ -10,7 +10,7 @@ app = FastAPI(title="Server")
 app.middleware("http")(global_rate_limiter)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
