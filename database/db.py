@@ -48,6 +48,14 @@ class ReadingMockAnswer(Base):
 
     question = relationship("ReadingMockQuestion", back_populates="answers")
 
+class WritingMock(Base):
+    __tablename__ = "writing_mocks"
+
+    id = Column(Integer, primary_key=True)
+    images = Column(ARRAY(String), default=[])
+    task1 = Column(JSON(String))
+    task2 = Column(JSON(String))
+    created_at = Column(DateTime, default=datetime.utcnow())
 
 Base.metadata.create_all(bind=engine)
 
