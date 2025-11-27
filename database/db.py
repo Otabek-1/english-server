@@ -57,6 +57,17 @@ class WritingMock(Base):
     task2 = Column(JSON(String))
     created_at = Column(DateTime, default=datetime.utcnow())
 
+class WritingResult(Base):
+    __tablename__ = "writing_results"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer)
+    task1 = Column(String)
+    task2 = Column(String)
+    result = Column(JSON(String), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow())
+
+
 Base.metadata.create_all(bind=engine)
 
 def get_db():
