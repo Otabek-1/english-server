@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, ForeignKey, ARRAY, JSON
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime,func, ForeignKey, ARRAY, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -19,6 +19,8 @@ class User(Base):
     role = Column(String(10), default="user")  # admin / user
     password = Column(String(255))
     premium_duration = Column(DateTime, nullable=True, default=None)
+    notifications = relationship("Notification", back_populates="user")
+
 
 class ReadingMockQuestion(Base):
     __tablename__ = "reading_questions"
@@ -67,6 +69,17 @@ class WritingResult(Base):
     result = Column(JSON(String), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow())
 
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    title = Column(String, nullable=False)
+    body = Column(String, nullable=False)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User", back_populates="notifications")
 
 Base.metadata.create_all(bind=engine)
 
