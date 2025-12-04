@@ -253,4 +253,4 @@ def check_result(id:int,data:Result, db:Session = Depends(get_db), user = Depend
     exists.result = result_data
     db.commit()
     db.refresh(exists)
-    return {"message":"Checked successfully."}
+    return {"message":"Checked successfully.","data":data}
