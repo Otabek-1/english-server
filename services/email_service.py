@@ -1,57 +1,51 @@
-import os
-import dotenv
 import requests
-from typing import Tuple
+import os
+from dotenv import load_dotenv
 
-dotenv.load_dotenv()
+load_dotenv()
 
-def send_email(to_email: str, subject: str, message: str) -> Tuple[bool, str]:
-    """
-    Resend.com orqali email jo'natish
-    Render.com da ishlaydi va bloklanmaydi
-    """
-    api_key = os.getenv("RESEND_API_KEY")
-    sender_email = os.getenv("SENDER_EMAIL")
-    
-    if not api_key or not sender_email:
-        error_msg = "❌ RESEND_API_KEY yoki SENDER_EMAIL .env da yo'q!"
-        print(error_msg)
-        return False, error_msg
-    
-    url = "https://api.resend.com/emails"
-    
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    
+def send_email(to_email: str, subject: str, message: str):
+    api_key = "a465a0473f0751ef239d896315ccb0a4"
+    api_secret = "5873ed096370a6089c4829ee5399f63c"
+    sender_email = "burhonovotabek5@gmail.com"
+
+    if not api_key or not api_secret or not sender_email:
+        print("❌ MAILJET API KEY yoki SECRET yoki SENDER_EMAIL yo'q!")
+        return False, "Missing credentials"
+
+    url = "https://api.mailjet.com/v3.1/send"
+
     payload = {
-        "from": sender_email,
-        "to": to_email,
-        "subject": subject,
-        "html": message
+        "Messages": [
+            {
+                "From": {
+                    "Email": sender_email,
+                    "Name": "Your App"
+                },
+                "To": [
+                    {"Email": to_email}
+                ],
+                "Subject": subject,
+                "HTMLPart": message
+            }
+        ]
     }
-    
+
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
-        
+        response = requests.post(
+            url,
+            json=payload,
+            auth=(api_key, api_secret),  # Mailjet basic auth
+            timeout=10
+        )
+
         if response.status_code == 200:
-            print(f"✅ Email {to_email} ga jo'natildi! (ID: {response.json().get('id')})")
-            return True, "Email sent successfully"
+            print(f"✅ Email {to_email} ga muvaffaqiyatli jo'natildi!")
+            return True, "Success"
         else:
-            error_msg = f"❌ Resend xatosi: {response.json().get('message', response.text)}"
-            print(error_msg)
-            return False, error_msg
-            
-    except requests.exceptions.Timeout:
-        error_msg = "❌ Request vaqti o'tib ketdi"
-        print(error_msg)
-        return False, error_msg
-    except requests.exceptions.ConnectionError:
-        error_msg = "❌ Internet ulanishida xato"
-        print(error_msg)
-        return False, error_msg
+            print(f"❌ Xato: {response.text}")
+            return False, response.text
+
     except Exception as e:
-        error_msg = f"❌ Xato: {str(e)}"
-        print(error_msg)
-        return False, error_msg
+        print(f"❌ Exception: {str(e)}")
+        return False, str(e)
