@@ -22,6 +22,7 @@ def send_email(to_email, subject, message):
 
         server.sendmail(sender_email,to_email,msg.as_string())
         server.quit()
+        print("Email sent!")
 
     except Exception as e:
         print(f"Error: {e}")
