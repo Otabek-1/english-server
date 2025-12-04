@@ -74,7 +74,7 @@ def check_result(id:int,data:Result, db:Session = Depends(get_db), user = Depend
     if not exists:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
     result_data = {"scores":data.result["scores"],"band":data.result["band"],"feedbacks":data.result["feedbacks"],"submitted_at":data.result["submitted_at"]}
-    if data.result["send_email"]=="true":
+    if data.result["send_email"]:
         user = db.query(User).filter(User.id == data.result["user_id"]).first()
         message = f"""
 <html>
