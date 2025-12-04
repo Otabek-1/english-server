@@ -55,6 +55,11 @@ def submit_mock(data: MockResponse,db:Session = Depends(get_db), user = Depends(
     db.refresh(result)
     return {"message":"Accepted successfully."}
 
+@router.get("/results")
+def get_all_results(db: Session = Depends(get_db), user = Depends(verify_role(["admin"]))):
+    res = db.query(WritingResult).all()
+    return res
+
 @router.get("/result/{id}")
 def get_result_by_id(id:int, db:Session = Depends(get_db), user = Depends(verify_access_token)):
     exists = db.query(WritingResult).filter(WritingResult.id == id).first()
