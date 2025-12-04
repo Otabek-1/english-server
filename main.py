@@ -9,10 +9,10 @@ from rate_limit import global_rate_limiter
 
 app = FastAPI(title="Server")
 
-# app.middleware("http")(global_rate_limiter)
+app.middleware("http")(global_rate_limiter)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000","http://localhost:5173"],
+    allow_origins=["http://localhost:3000","http://localhost:5173","https://mockstream.netlify.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
