@@ -4,6 +4,7 @@ from auth.router import router as auth_router
 from routes.user import router as user_router
 from routes.ReadingMockQuestion import router as reading_routes
 from routes.WritingMock import router as writing_router
+from routes.notification_router import router as notification_routes
 from rate_limit import global_rate_limiter
 
 app = FastAPI(title="Server")
@@ -11,7 +12,7 @@ app = FastAPI(title="Server")
 app.middleware("http")(global_rate_limiter)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000","http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
@@ -21,6 +22,7 @@ app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(reading_routes)
 app.include_router(writing_router)
+app.include_router(notification_routes)
 
 @app.get("/")
 def root():
