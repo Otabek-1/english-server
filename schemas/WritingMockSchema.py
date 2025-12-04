@@ -6,6 +6,7 @@ class CreateMockData(BaseModel):
     task2:dict
 
 class MockResponse(BaseModel):
+    mock_id:int
     task1:str
     task2:str
 

@@ -49,7 +49,7 @@ def delete_mock(id:int, db: Session = Depends(get_db), user = Depends(verify_rol
 
 @router.post("/submit")
 def submit_mock(data: MockResponse,db:Session = Depends(get_db), user = Depends(verify_access_token)):
-    result = WritingResult(user_id = user["id"], task1= data.task1, task2=data.task2)
+    result = WritingResult(user_id = user["id"], task1= data.task1, task2=data.task2,mock_id=data.mock_id)
     db.add(result)
     db.commit()
     db.refresh(result)

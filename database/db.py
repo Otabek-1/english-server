@@ -64,6 +64,7 @@ class WritingResult(Base):
 
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer)
+    mock_id=Column(Integer)
     task1 = Column(String)
     task2 = Column(String)
     result = Column(JSON(String), nullable=True)
