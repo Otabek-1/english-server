@@ -18,9 +18,10 @@ def register_user(data: RegisterUser, db: Session = Depends(get_db)):
         db.refresh(new_user)
         access_token = create_access_token({"id":new_user.id,"email":new_user.email})
         refresh_token = create_refresh_token({"id":new_user.id,"email":new_user.email})
-        welcome_notification = Notification(title=f"Xush kelibsiz, {new_user.username}! 👋",body=f"Bizning platformamizga qo'shilganingiz uchun tashakkur. Ingliz tili o'rganishni boshlang va o'z darajangizni oshiring!")
+        welcome_notification = Notification(title=f"Xush kelibsiz, {new_user.username}! 👋",body=f"Bizning platformamizga qo'shilganingiz uchun tashakkur. Ingliz tili o'rganishni boshlang va o'z darajangizni oshiring!", user_id=new_user.id)
         db.add(welcome_notification)
         db.commit()
+        db.refresh(welcome_notification)
         return {
             "message":"User registered",
             "access_token":access_token,
