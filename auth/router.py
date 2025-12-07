@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from .auth import hash_password, create_access_token, create_refresh_token, verify_password, verify_access_token, verify_refresh_token
 from .schema import RegisterUser, LoginUser, TokenRefreshSchema
-from database.db import get_db, User
+from database.db import get_db, User, Notification
 
 router = APIRouter(prefix="/auth")
 
@@ -18,7 +18,9 @@ def register_user(data: RegisterUser, db: Session = Depends(get_db)):
         db.refresh(new_user)
         access_token = create_access_token({"id":new_user.id,"email":new_user.email})
         refresh_token = create_refresh_token({"id":new_user.id,"email":new_user.email})
-        
+        welcome_notification = Notification(title=f"Xush kelibsiz, {new_user.username}! 👋",body=f"Bizning platformamizga qo'shilganingiz uchun tashakkur. Ingliz tili o'rganishni boshlang va o'z darajangizni oshiring!")
+        db.add(welcome_notification)
+        db.commit()
         return {
             "message":"User registered",
             "access_token":access_token,
