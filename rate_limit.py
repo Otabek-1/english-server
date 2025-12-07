@@ -2,7 +2,7 @@ from fastapi import Request, HTTPException, status
 from fastapi.responses import JSONResponse
 from redis_client import redis_client
 
-MAX_REQUESTS = 20
+MAX_REQUESTS = 40
 WINDOW_SECONDS = 60
 
 async def global_rate_limiter(request: Request, call_next):
