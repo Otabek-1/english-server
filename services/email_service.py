@@ -20,7 +20,7 @@ def send_email(to_email: str, subject: str, message: str):
             {
                 "From": {
                     "Email": sender_email,
-                    "Name": "Your App"
+                    "Name": "Mock Stream"
                 },
                 "To": [
                     {"Email": to_email}
