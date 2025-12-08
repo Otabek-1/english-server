@@ -50,7 +50,7 @@ def update_new(id:int,data: News, db: Session = Depends(get_db), user = Depends(
     return exists
 
 @router.post("/react/{id}")
-def react(id:int, data: React, db: Session = Depends(get_db), user = verify_access_token):
+def react(id:int, data: React, db: Session = Depends(get_db), user = Depends(verify_access_token)):
     exists = db.query(news).filter(news.id==id).first()
     if not exists:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
