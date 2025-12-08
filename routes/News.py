@@ -50,16 +50,39 @@ def update_new(id:int,data: News, db: Session = Depends(get_db), user = Depends(
     return exists
 
 @router.post("/react/{id}")
-def react(id:int, data: React, db: Session = Depends(get_db), user = Depends(verify_access_token)):
-    exists = db.query(news).filter(news.id==id).first()
+def react(
+    id: int,
+    data: React,
+    db: Session = Depends(get_db),
+    user = Depends(verify_access_token)
+):
+    # Yangilikni topish
+    exists = db.query(news).filter(news.id == id).first()
     if not exists:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
-    reactions = defaultdict(exists.reactions)
-    reactions[data.emoji].append(user.id)
+        raise HTTPException(status_code=404, detail="Not found.")
+
+    # reactions - dict bo'lishi kerak
+    reactions = exists.reactions or {}          # { "👍": [1,2], "❤️": [5], ... }
+
+    # 1️⃣ Barcha reactionlardan userni olib tashlaymiz (unreact)
+    for emoji, users in reactions.items():
+        if user.id in users:
+            users.remove(user.id)
+
+    # 2️⃣ Agar yangi emoji YAQINDA bosilgan bo‘lsa → unreact bo‘lgan, qaytadan qo‘shmaymiz
+    #    Ya'ni shu emoji ostida user bo‘lmasa, qo‘shib qo‘yamiz
+    if user.id not in reactions.get(data.emoji, []):
+        # agar bu emoji hali yo‘q bo‘lsa → massiv ochamiz
+        reactions.setdefault(data.emoji, [])
+        reactions[data.emoji].append(user.id)
+
+    # Yangilash
     exists.reactions = reactions
     db.commit()
     db.refresh(exists)
-    return {"message":"Success"}
+
+    return {"message": "Success", "reactions": reactions}
+
 
 @router.delete("/{id}")
 def delete(id:int, db: Session = Depends(get_db), user = Depends(verify_role(['admin']))):
