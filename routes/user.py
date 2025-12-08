@@ -19,7 +19,7 @@ def get_users(db: Session = Depends(get_db)):
 @router.get("/me")
 def get_me(db:Session = Depends(get_db), payload: dict = Depends(get_current_user)):
     try:
-        user = db.query(User).filter(User.id == payload['id']).first()
+        user = db.query(User).filter(User.id == payload.id).first()
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
         return user
@@ -58,7 +58,7 @@ def demote_user(data:promoteData, db: Session = Depends(get_db), user = Depends(
 @router.put("/update")
 def update_user(data:udpateUser, payload: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
-        user = db.query(User).filter(User.id == payload["id"]).first()
+        user = db.query(User).filter(User.id == payload.id).first()
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
         user.username = data.username
@@ -73,7 +73,7 @@ def update_user(data:udpateUser, payload: dict = Depends(get_current_user), db: 
 @router.post("/password")
 def change_password(data:passwordChange, db: Session = Depends(get_db), payload = Depends(get_current_user)):
     try:
-        user = db.query(User).filter(User.id == payload["id"]).first()
+        user = db.query(User).filter(User.id == payload.id).first()
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
         if not verify_password(data.old_password, user.password):

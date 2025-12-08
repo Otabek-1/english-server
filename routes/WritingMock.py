@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.orm import Session
-from auth.auth import verify_role, verify_access_token
+from auth.auth import verify_role, get_current_user
 from database.db import get_db, WritingMock, WritingResult, User
 from schemas.WritingMockSchema import CreateMockData, MockResponse, Result
 from services.email_service import send_email
@@ -49,8 +49,8 @@ def delete_mock(id:int, db: Session = Depends(get_db), user = Depends(verify_rol
     return {"message":"Deleted successfully."}
 
 @router.post("/submit")
-def submit_mock(data: MockResponse,db:Session = Depends(get_db), user = Depends(verify_access_token)):
-    result = WritingResult(user_id = user["id"], task1= data.task1, task2=data.task2,mock_id=data.mock_id)
+def submit_mock(data: MockResponse,db:Session = Depends(get_db), user = Depends(get_current_user)):
+    result = WritingResult(user_id = user.id, task1= data.task1, task2=data.task2,mock_id=data.mock_id)
     db.add(result)
     db.commit()
     db.refresh(result)
@@ -62,7 +62,7 @@ def get_all_results(db: Session = Depends(get_db), user = Depends(verify_role(["
     return res
 
 @router.get("/result/{id}")
-def get_result_by_id(id:int, db:Session = Depends(get_db), user = Depends(verify_access_token)):
+def get_result_by_id(id:int, db:Session = Depends(get_db), user = Depends(get_current_user)):
     exists = db.query(WritingResult).filter(WritingResult.id == id).first()
     if not exists:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")

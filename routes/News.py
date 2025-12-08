@@ -1,5 +1,5 @@
 from database.db import news, User, get_db
-from auth.auth import verify_role, verify_access_token
+from auth.auth import verify_role, get_current_user
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from schemas.news_schema import News, React
@@ -54,7 +54,7 @@ def react(
     id: int,
     data: React,
     db: Session = Depends(get_db),
-    user = Depends(verify_access_token)
+    user = Depends(get_current_user)
 ):
     # Yangilikni topish
     exists = db.query(news).filter(news.id == id).first()
