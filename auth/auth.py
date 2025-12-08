@@ -6,11 +6,11 @@ from passlib.context import CryptContext
 from database.db import get_db, User
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2AuthorizationCodeBearer
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Header
 load_dotenv()
 
 pwd_context = CryptContext(schemes=['argon2'], deprecated='auto')
-oauth2_scheme = OAuth2AuthorizationCodeBearer(authorizationUrl="/auth/login", tokenUrl="/auth/login")
+# oauth2_scheme = OAuth2AuthorizationCodeBearer(authorizationUrl="/auth/login", tokenUrl="/auth/login")
 
 def hash_password(psw: str) -> str:
     return pwd_context.hash(psw)
@@ -63,11 +63,18 @@ def verify_role(roles: list):
     return role_checker
 
 
-def get_current_user(token: str = Depends(oauth2_scheme)):
+def get_current_user(Authorization: str = Header(None)):
+    if Authorization is None or not Authorization.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid token format"
+        )
+
+    token = Authorization.split(" ")[1]
     payload = verify_access_token(token)
 
     if payload is None:
-           raise HTTPException(
+        raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
         )
