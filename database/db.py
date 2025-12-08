@@ -82,6 +82,16 @@ class Notification(Base):
 
     user = relationship("User", back_populates="notifications")
 
+class news(Base):
+    __tablename__ = "news"
+    
+    id = Column(Integer, primary_key=True)
+    title = Column(String)
+    body = Column(String)
+    slug = Column(String)
+    reactions = Column(JSON(String))
+    created_at = Column(DateTime(timezone=True), default=func.now())
+
 Base.metadata.create_all(bind=engine)
 
 def get_db():
