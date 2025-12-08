@@ -49,7 +49,7 @@ def verify_role(roles: list):
         payload: dict = Depends(get_current_user),
         db: Session = Depends(get_db)
     ):
-        user_id = payload["id"]
+        user_id = payload.id
         user = db.query(User).filter(User.id == user_id).first()
 
         if not user:
