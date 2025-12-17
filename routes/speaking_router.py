@@ -1,10 +1,15 @@
 from database.db import SpeakingMock, SpeakingResult, User
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File
 from sqlalchemy.orm import Session
 from auth.auth import verify_role, get_current_user
 from database.db import get_db
 from services.email_service import send_email
 from datetime import datetime
+import shutil
+from pathlib import Path
+import zipfile
+import os
+from services.telegram_bot import send_audio_zip_to_telegram  # ✍️ Siz buni yozishingiz kerak
 
 router = APIRouter(prefix="/mock/speaking", tags=["Speaking", "Mock", "CEFR"])
 
@@ -95,47 +100,72 @@ def delete_speaking_mock(
 
 
 # ===== SUBMIT SPEAKING RESULT =====
+UPLOAD_BASE = Path("uploads/speaking")
+UPLOAD_BASE.mkdir(parents=True, exist_ok=True)
+
 @router.post("/submit")
-def submit_speaking_result(
-    mock_id: int,
-    recordings: dict,  # {q1: url, q2: url, ...}
-    total_duration: int,
+async def submit_speaking_result(
+    mock_id: int = Form(...),
+    total_duration: int = Form(...),
+    audios: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
     user = Depends(get_current_user)
 ):
-    """
-    Submit speaking exam result
-    
-    recordings format:
-    {
-      "q1": "s3://audio1.webm",
-      "q2": "s3://audio2.webm",
-      ...
-      "q8": "s3://audio8.webm"
-    }
-    """
-    # Check if mock exists
+    # 1. Mock mavjudligini tekshirish
     mock = db.query(SpeakingMock).filter(SpeakingMock.id == mock_id).first()
     if not mock:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mock not found.")
-    
-    # Create result
+        raise HTTPException(status_code=404, detail="Mock not found")
+
+    # 2. Foydalanuvchi premium ekanligini tekshirish
+    is_premium = user.role == "premium" or user.is_premium  # Sizning modelga qarang
+
+    # 3. Saqlash papkasini yaratish
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    folder_name = f"user{user.id}_mock{mock_id}_{timestamp}"
+    user_dir = UPLOAD_BASE / folder_name
+    user_dir.mkdir()
+
+    saved_paths = []
+    for audio in audios:
+        if not audio.content_type.startswith("audio/"):
+            continue  # yoki xato berish
+
+        safe_filename = audio.filename.replace(" ", "_")
+        file_path = user_dir / safe_filename
+        with open(file_path, "wb") as f:
+            shutil.copyfileobj(audio.file, f)
+        saved_paths.append(str(file_path))
+
+    # 4. Agar premium bo'lmasa — Telegramga yuborish
+    if not is_premium:
+        # Telegram bot orqali ZIP yaratib yuborish
+        zip_path = user_dir.with_suffix(".zip")
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            for fp in saved_paths:
+                zf.write(fp, arcname=os.path.basename(fp))
+
+        caption = f"Non-premium submission\nUser ID: {user.id}\nMock ID: {mock_id}\nTime: {timestamp}"
+        send_audio_zip_to_telegram(zip_path, caption=caption)
+
+        # Mahalliy fayllarni o'chirish (ixtiyoriy)
+        shutil.rmtree(user_dir)
+        os.remove(zip_path)
+
+    # 5. DB ga yozish (faqat yo'l yoki folder nomi)
     result = SpeakingResult(
         user_id=user.id,
         mock_id=mock_id,
-        recordings=recordings,
+        recordings={"folder": str(user_dir) if is_premium else "sent_to_telegram"},
         total_duration=total_duration
     )
     db.add(result)
     db.commit()
     db.refresh(result)
-    
-    return {
-        "message": "Exam submitted successfully.",
-        "result_id": result.id,
-        "submitted_at": result.created_at
-    }
 
+    return {
+        "message": "Submitted successfully",
+        "result_id": result.id
+    }
 
 # ===== GET ALL RESULTS (ADMIN ONLY) =====
 @router.get("/results")
@@ -164,23 +194,50 @@ def get_user_results(
 
 
 # ===== GET RESULT BY ID =====
-@router.get("/result/{id}")
-def get_result_by_id(
+@router.post("/check/{id}")
+def check_result(
     id: int,
+    evaluation: dict,
     db: Session = Depends(get_db),
-    user = Depends(get_current_user)
+    user = Depends(verify_role(['admin']))
 ):
-    """Get result by ID"""
     result = db.query(SpeakingResult).filter(SpeakingResult.id == id).first()
     if not result:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result not found.")
-    
-    # Check authorization
-    if result.user_id != user.id and user.role != 'admin':
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized.")
-    
-    return {"result": result}
+        raise HTTPException(404, "Result not found")
 
+    # Foydalanuvchini tekshirish
+    result_user = db.query(User).filter(User.id == result.user_id).first()
+    is_premium = result_user.role == "premium" or result_user.is_premium
+
+    # Agar premium bo'lsa va audio saqlangan bo'lsa
+    if is_premium and result.recordings.get("folder"):
+        folder_path = Path(result.recordings["folder"])
+        if folder_path.exists():
+            zip_path = folder_path.with_suffix(".zip")
+            with zipfile.ZipFile(zip_path, "w") as zf:
+                for fp in folder_path.rglob("*"):
+                    if fp.is_file():
+                        zf.write(fp, arcname=fp.relative_to(folder_path.parent))
+
+            caption = f"Premium user evaluation\nUser ID: {result.user_id}\nMock ID: {result.mock_id}\nEvaluated by admin"
+            send_audio_zip_to_telegram(zip_path, caption=caption)
+            # ZIP faylni keyin o'chirish mumkin
+
+    # ... (sizning mavjud evaluation logikangizni qo'shing)
+
+    result.evaluation = {
+        "scores": evaluation.get("scores"),
+        "band": evaluation.get("band"),
+        "feedbacks": evaluation.get("feedbacks"),
+        "evaluated_at": datetime.utcnow().isoformat()
+    }
+
+    db.commit()
+    db.refresh(result)
+
+    # Email yoki boshqa narsa...
+
+    return {"message": "Evaluated and audio ZIP sent to archive channel"}
 
 # ===== CHECK/EVALUATE RESULT (ADMIN ONLY) =====
 @router.post("/check/{id}")
