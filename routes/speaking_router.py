@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from auth.auth import verify_role, get_current_user
 from database.db import get_db
 from services.email_service import send_email
-from datetime import datetime, timezone
+from datetime import datetime, 
 import shutil
 from pathlib import Path
 import zipfile
@@ -108,9 +108,9 @@ UPLOAD_BASE.mkdir(parents=True, exist_ok=True)
 async def submit_speaking_result(
     mock_id: int = Form(...),
     total_duration: int = Form(...),
-    audios: List[UploadFile] = File(...),
+    audios: List[UploadFile] = File(...),  # ✅ File — oxirida
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)  # <-- ✅ current_user ishlatish
+    current_user: User = Depends(get_current_user)
 ):
     # 1. Mock mavjudligini tekshirish
     mock = db.query(SpeakingMock).filter(SpeakingMock.id == mock_id).first()
