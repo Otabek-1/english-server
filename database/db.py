@@ -113,7 +113,7 @@ class Notification(Base):
     user = relationship("User", back_populates="notifications")
 
 
-class News(Base):
+class news(Base):
     __tablename__ = "news"
     
     id = Column(Integer, primary_key=True)
