@@ -4,12 +4,13 @@ from sqlalchemy.orm import Session
 from auth.auth import verify_role, get_current_user
 from database.db import get_db
 from services.email_service import send_email
-from datetime import datetime
+from datetime import datetime, timezone
 import shutil
 from pathlib import Path
 import zipfile
 import os
 from services.telegram_bot import send_audio_zip_to_telegram  # ✍️ Siz buni yozishingiz kerak
+from typing import List
 
 router = APIRouter(prefix="/mock/speaking", tags=["Speaking", "Mock", "CEFR"])
 
@@ -107,55 +108,73 @@ UPLOAD_BASE.mkdir(parents=True, exist_ok=True)
 async def submit_speaking_result(
     mock_id: int = Form(...),
     total_duration: int = Form(...),
-    audios: list[UploadFile] = File(...),
+    audios: List[UploadFile] = File(...),
     db: Session = Depends(get_db),
-    user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)  # <-- ✅ current_user ishlatish
 ):
     # 1. Mock mavjudligini tekshirish
     mock = db.query(SpeakingMock).filter(SpeakingMock.id == mock_id).first()
     if not mock:
         raise HTTPException(status_code=404, detail="Mock not found")
 
-    # 2. Foydalanuvchi premium ekanligini tekshirish
-    is_premium = user.role == "premium" or user.is_premium  # Sizning modelga qarang
+    # 2. Premium statusini tekshirish
+    is_premium = False
+    if current_user.premium_duration is not None:
+        # UTC vaqtida solishtirish (agar saqlangan vaqt UTC bo'lsa)
+        if current_user.premium_duration.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc):
+            is_premium = True
 
-    # 3. Saqlash papkasini yaratish
+    # 3. Papka yaratish
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    folder_name = f"user{user.id}_mock{mock_id}_{timestamp}"
+    folder_name = f"user{current_user.id}_mock{mock_id}_{timestamp}"
     user_dir = UPLOAD_BASE / folder_name
-    user_dir.mkdir()
+    user_dir.mkdir(parents=True, exist_ok=True)
 
     saved_paths = []
     for audio in audios:
-        if not audio.content_type.startswith("audio/"):
-            continue  # yoki xato berish
+        if not audio.content_type or not audio.content_type.startswith("audio/"):
+            continue  # yoki raise HTTPException
 
-        safe_filename = audio.filename.replace(" ", "_")
+        safe_filename = audio.filename.replace(" ", "_") if audio.filename else "audio.webm"
         file_path = user_dir / safe_filename
         with open(file_path, "wb") as f:
             shutil.copyfileobj(audio.file, f)
-        saved_paths.append(str(file_path))
+        saved_paths.append(file_path)
 
-    # 4. Agar premium bo'lmasa — Telegramga yuborish
+    # 4. Agar premium bo'lmasa — ZIP yaratib Telegramga yuborish
     if not is_premium:
-        # Telegram bot orqali ZIP yaratib yuborish
         zip_path = user_dir.with_suffix(".zip")
-        with zipfile.ZipFile(zip_path, "w") as zf:
-            for fp in saved_paths:
-                zf.write(fp, arcname=os.path.basename(fp))
+        try:
+            with zipfile.ZipFile(zip_path, "w") as zf:
+                for fp in saved_paths:
+                    zf.write(fp, arcname=fp.name)
+            
+            caption = (
+                f"Non-premium submission\n"
+                f"User ID: {current_user.id}\n"
+                f"Mock ID: {mock_id}\n"
+                f"Time: {timestamp}"
+            )
+            send_audio_zip_to_telegram(zip_path, caption=caption)
 
-        caption = f"Non-premium submission\nUser ID: {user.id}\nMock ID: {mock_id}\nTime: {timestamp}"
-        send_audio_zip_to_telegram(zip_path, caption=caption)
+        finally:
+            # Mahalliy fayllarni tozalash
+            if user_dir.exists():
+                shutil.rmtree(user_dir)
+            if zip_path.exists():
+                os.remove(zip_path)
 
-        # Mahalliy fayllarni o'chirish (ixtiyoriy)
-        shutil.rmtree(user_dir)
-        os.remove(zip_path)
+        recordings_data = {"status": "sent_to_telegram"}
 
-    # 5. DB ga yozish (faqat yo'l yoki folder nomi)
+    else:
+        # Premium — fayllar saqlanib qoladi
+        recordings_data = {"folder": str(user_dir)}
+
+    # 5. DB ga yozish
     result = SpeakingResult(
-        user_id=user.id,
+        user_id=current_user.id,
         mock_id=mock_id,
-        recordings={"folder": str(user_dir) if is_premium else "sent_to_telegram"},
+        recordings=recordings_data,
         total_duration=total_duration
     )
     db.add(result)
@@ -164,7 +183,8 @@ async def submit_speaking_result(
 
     return {
         "message": "Submitted successfully",
-        "result_id": result.id
+        "result_id": result.id,
+        "is_premium": is_premium
     }
 
 # ===== GET ALL RESULTS (ADMIN ONLY) =====
