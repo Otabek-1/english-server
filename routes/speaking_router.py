@@ -108,7 +108,7 @@ UPLOAD_BASE.mkdir(parents=True, exist_ok=True)
 async def submit_speaking_result(
     mock_id: int = Form(...),
     total_duration: int = Form(...),
-    audios: List[UploadFile] = File(...),  # ✅ File — oxirida
+    audios: List[UploadFile] = File(...),  # ✅ Bu to'g'ri
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
