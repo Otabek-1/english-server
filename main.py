@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 from auth.router import router as auth_router
 from routes.user import router as user_router
 from routes.ReadingMockQuestion import router as reading_routes
@@ -20,6 +22,7 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
+# ===== ROUTERS =====
 app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(reading_routes)
@@ -27,6 +30,11 @@ app.include_router(writing_router)
 app.include_router(notification_routes)
 app.include_router(news_router)
 app.include_router(speaking_router)
+
+# ===== STATIC FILES - Audio, Images, etc. =====
+uploads_path = Path("uploads")
+uploads_path.mkdir(exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 @app.get("/")
 def root():

@@ -9,10 +9,14 @@ import shutil
 from pathlib import Path
 import zipfile
 import os
-from services.telegram_bot import send_audio_zip_to_telegram  # ✍️ Siz buni yozishingiz kerak
+from services.telegram_bot import send_audio_zip_to_telegram
 from typing import List
 
 router = APIRouter(prefix="/mock/speaking", tags=["Speaking", "Mock", "CEFR"])
+
+# ===== UPLOAD BASE PATH =====
+UPLOAD_BASE = Path("uploads/speaking")
+UPLOAD_BASE.mkdir(parents=True, exist_ok=True)
 
 
 # ===== GET ALL SPEAKING MOCKS =====
@@ -41,17 +45,7 @@ def create_speaking_mock(
     db: Session = Depends(get_db),
     user = Depends(verify_role(['admin']))
 ):
-    """
-    Create new speaking mock
-    
-    questions format:
-    {
-      "1.1": [...],
-      "1.2": [...],
-      "2": [...],
-      "3": [...]
-    }
-    """
+    """Create new speaking mock"""
     mock = SpeakingMock(title=title, questions=questions)
     db.add(mock)
     db.commit()
@@ -101,17 +95,16 @@ def delete_speaking_mock(
 
 
 # ===== SUBMIT SPEAKING RESULT =====
-UPLOAD_BASE = Path("uploads/speaking")
-UPLOAD_BASE.mkdir(parents=True, exist_ok=True)
-
 @router.post("/submit")
 async def submit_speaking_result(
     mock_id: int = Form(...),
     total_duration: int = Form(...),
-    audios: List[UploadFile] = File(...),  # ✅ File — oxirida
+    audios: List[UploadFile] = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """Submit speaking exam result with audio files"""
+    
     # 1. Mock mavjudligini tekshirish
     mock = db.query(SpeakingMock).filter(SpeakingMock.id == mock_id).first()
     if not mock:
@@ -120,7 +113,6 @@ async def submit_speaking_result(
     # 2. Premium statusini tekshirish
     is_premium = False
     if current_user.premium_duration is not None:
-        # UTC vaqtida solishtirish (agar saqlangan vaqt UTC bo'lsa)
         if current_user.premium_duration.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc):
             is_premium = True
 
@@ -133,7 +125,7 @@ async def submit_speaking_result(
     saved_paths = []
     for audio in audios:
         if not audio.content_type or not audio.content_type.startswith("audio/"):
-            continue  # yoki raise HTTPException
+            continue
 
         safe_filename = audio.filename.replace(" ", "_") if audio.filename else "audio.webm"
         file_path = user_dir / safe_filename
@@ -150,10 +142,10 @@ async def submit_speaking_result(
                     zf.write(fp, arcname=fp.name)
             
             caption = (
-                f"Non-premium submission\n"
-                f"User ID: {current_user.id}\n"
-                f"Mock ID: {mock_id}\n"
-                f"Time: {timestamp}"
+                f"📱 Non-premium Submission\n"
+                f"👤 User ID: {current_user.id}\n"
+                f"📝 Mock ID: {mock_id}\n"
+                f"⏰ Time: {timestamp}"
             )
             send_audio_zip_to_telegram(zip_path, caption=caption)
 
@@ -167,8 +159,8 @@ async def submit_speaking_result(
         recordings_data = {"status": "sent_to_telegram"}
 
     else:
-        # Premium — fayllar saqlanib qoladi
-        recordings_data = {"folder": str(user_dir)}
+        # Premium — fayllar saqlanib qoladi, path'ni unix-style qil
+        recordings_data = {"folder": user_dir.as_posix()}
 
     # 5. DB ga yozish
     result = SpeakingResult(
@@ -184,8 +176,10 @@ async def submit_speaking_result(
     return {
         "message": "Submitted successfully",
         "result_id": result.id,
-        "is_premium": is_premium
+        "is_premium": is_premium,
+        "storage_type": "premium_backend" if is_premium else "telegram_archive"
     }
+
 
 # ===== GET ALL RESULTS (ADMIN ONLY) =====
 @router.get("/results")
@@ -214,56 +208,29 @@ def get_user_results(
 
 
 # ===== GET RESULT BY ID =====
-@router.post("/check/{id}")
-def check_result(
+@router.get("/result/{id}")
+def get_result_by_id(
     id: int,
-    evaluation: dict,
     db: Session = Depends(get_db),
-    user = Depends(verify_role(['admin']))
+    current_user = Depends(get_current_user)
 ):
+    """Get result by ID"""
     result = db.query(SpeakingResult).filter(SpeakingResult.id == id).first()
     if not result:
-        raise HTTPException(404, "Result not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result not found.")
+    
+    # Check authorization
+    if result.user_id != current_user.id and current_user.role != 'admin':
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized.")
+    
+    return {"result": result}
 
-    # Foydalanuvchini tekshirish
-    result_user = db.query(User).filter(User.id == result.user_id).first()
-    is_premium = result_user.role == "premium" or result_user.is_premium
-
-    # Agar premium bo'lsa va audio saqlangan bo'lsa
-    if is_premium and result.recordings.get("folder"):
-        folder_path = Path(result.recordings["folder"])
-        if folder_path.exists():
-            zip_path = folder_path.with_suffix(".zip")
-            with zipfile.ZipFile(zip_path, "w") as zf:
-                for fp in folder_path.rglob("*"):
-                    if fp.is_file():
-                        zf.write(fp, arcname=fp.relative_to(folder_path.parent))
-
-            caption = f"Premium user evaluation\nUser ID: {result.user_id}\nMock ID: {result.mock_id}\nEvaluated by admin"
-            send_audio_zip_to_telegram(zip_path, caption=caption)
-            # ZIP faylni keyin o'chirish mumkin
-
-    # ... (sizning mavjud evaluation logikangizni qo'shing)
-
-    result.evaluation = {
-        "scores": evaluation.get("scores"),
-        "band": evaluation.get("band"),
-        "feedbacks": evaluation.get("feedbacks"),
-        "evaluated_at": datetime.utcnow().isoformat()
-    }
-
-    db.commit()
-    db.refresh(result)
-
-    # Email yoki boshqa narsa...
-
-    return {"message": "Evaluated and audio ZIP sent to archive channel"}
 
 # ===== CHECK/EVALUATE RESULT (ADMIN ONLY) =====
 @router.post("/check/{id}")
 def check_result(
     id: int,
-    evaluation: dict,  # {scores: {...}, feedback: {...}, send_email: bool}
+    evaluation: dict,
     db: Session = Depends(get_db),
     user = Depends(verify_role(['admin']))
 ):
@@ -293,6 +260,36 @@ def check_result(
     if not result:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result not found.")
     
+    # Get user and mock info
+    result_user = db.query(User).filter(User.id == result.user_id).first()
+    mock_data = db.query(SpeakingMock).filter(SpeakingMock.id == result.mock_id).first()
+    
+    # ★★★ YANGI: Agar premium bo'lsa, barcha audio fayllarini ZIP qilib Telegramga yuborish ★★★
+    if result_user and result.recordings and "folder" in result.recordings:
+        folder_path = Path(result.recordings["folder"])
+        if folder_path.exists():
+            try:
+                zip_path = folder_path.with_suffix(".zip")
+                with zipfile.ZipFile(zip_path, "w") as zf:
+                    for fp in folder_path.rglob("*"):
+                        if fp.is_file():
+                            zf.write(fp, arcname=fp.relative_to(folder_path.parent))
+
+                caption = (
+                    f"✅ Premium user evaluation completed\n"
+                    f"👤 User ID: {result.user_id}\n"
+                    f"📝 Mock ID: {result.mock_id}\n"
+                    f"🏆 Band: {evaluation.get('band', 'N/A')}\n"
+                    f"📊 Total: {evaluation.get('scores', {}).get('total', 'N/A')}/40"
+                )
+                send_audio_zip_to_telegram(zip_path, caption=caption)
+
+                # Ixtiyoriy: ZIP faylni keyin o'chirish
+                zip_path.unlink(missing_ok=True)
+
+            except Exception as e:
+                print(f"ZIP/Telegram send error: {e}")
+                
     # Update result with evaluation
     result.evaluation = {
         "scores": evaluation.get("scores"),
@@ -302,11 +299,8 @@ def check_result(
     }
     
     # Send email if requested
-    if evaluation.get("send_email"):
-        result_user = db.query(User).filter(User.id == result.user_id).first()
-        if result_user:
-            mock_data = result.mock
-            message = f"""
+    if evaluation.get("send_email") and result_user:
+        message = f"""
 <html>
   <head>
     <style>
@@ -335,11 +329,6 @@ def check_result(
         margin: 0;
         font-size: 28px;
       }}
-      .header p {{
-        color: #7f8c8d;
-        margin: 5px 0 0 0;
-        font-size: 14px;
-      }}
       .score-box {{
         background-color: #ecf0f1;
         padding: 15px;
@@ -352,18 +341,6 @@ def check_result(
         justify-content: space-between;
         padding: 10px 0;
         border-bottom: 1px solid #bdc3c7;
-      }}
-      .score-row:last-child {{
-        border-bottom: none;
-      }}
-      .score-label {{
-        font-weight: bold;
-        color: #2c3e50;
-      }}
-      .score-value {{
-        color: #3498db;
-        font-weight: bold;
-        font-size: 16px;
       }}
       .band-display {{
         text-align: center;
@@ -381,12 +358,6 @@ def check_result(
         margin: 15px 0;
         border-radius: 5px;
         border-left: 4px solid #2ecc71;
-      }}
-      .part-title {{
-        font-weight: bold;
-        color: #2c3e50;
-        margin-bottom: 8px;
-        font-size: 16px;
       }}
       .part-score {{
         display: inline-block;
@@ -413,11 +384,6 @@ def check_result(
         color: #95a5a6;
         font-size: 12px;
       }}
-      .evaluated-time {{
-        color: #7f8c8d;
-        font-size: 12px;
-        margin-top: 10px;
-      }}
     </style>
   </head>
   <body>
@@ -429,12 +395,12 @@ def check_result(
 
       <div class="score-box">
         <div class="score-row">
-          <span class="score-label">Mock ID:</span>
-          <span>{mock_data.id}</span>
+          <span style="font-weight: bold;">Mock ID:</span>
+          <span>{mock_data.id if mock_data else result.mock_id}</span>
         </div>
         <div class="score-row">
-          <span class="score-label">Total Score:</span>
-          <span class="score-value">{evaluation.get("scores", {}).get("total", "N/A")}/40</span>
+          <span style="font-weight: bold;">Total Score:</span>
+          <span style="color: #3498db; font-weight: bold;">{evaluation.get("scores", {}).get("total", "N/A")}/40</span>
         </div>
       </div>
 
@@ -443,58 +409,57 @@ def check_result(
       </div>
 
       <div class="part-section">
-        <div class="part-title">✓ Part 1.1 - Individual Long Turn</div>
+        <div style="font-weight: bold; color: #2c3e50; margin-bottom: 8px;">✓ Part 1.1 - Individual Long Turn</div>
         <div class="part-score">Score: {evaluation.get("scores", {}).get("part1.1", "N/A")}/10</div>
         <div class="feedback-text">
-          {evaluation.get("feedbacks", {}).get("part1.1", "N/A")}
+          {evaluation.get("feedbacks", {}).get("part1.1", "No feedback")}
         </div>
       </div>
 
       <div class="part-section">
-        <div class="part-title">✓ Part 1.2 - Picture Description</div>
+        <div style="font-weight: bold; color: #2c3e50; margin-bottom: 8px;">✓ Part 1.2 - Picture Description</div>
         <div class="part-score">Score: {evaluation.get("scores", {}).get("part1.2", "N/A")}/10</div>
         <div class="feedback-text">
-          {evaluation.get("feedbacks", {}).get("part1.2", "N/A")}
+          {evaluation.get("feedbacks", {}).get("part1.2", "No feedback")}
         </div>
       </div>
 
       <div class="part-section">
-        <div class="part-title">✓ Part 2 - Extended Monologue</div>
+        <div style="font-weight: bold; color: #2c3e50; margin-bottom: 8px;">✓ Part 2 - Extended Monologue</div>
         <div class="part-score">Score: {evaluation.get("scores", {}).get("part2", "N/A")}/10</div>
         <div class="feedback-text">
-          {evaluation.get("feedbacks", {}).get("part2", "N/A")}
+          {evaluation.get("feedbacks", {}).get("part2", "No feedback")}
         </div>
       </div>
 
       <div class="part-section">
-        <div class="part-title">✓ Part 3 - Discussion</div>
+        <div style="font-weight: bold; color: #2c3e50; margin-bottom: 8px;">✓ Part 3 - Discussion</div>
         <div class="part-score">Score: {evaluation.get("scores", {}).get("part3", "N/A")}/10</div>
         <div class="feedback-text">
-          {evaluation.get("feedbacks", {}).get("part3", "N/A")}
+          {evaluation.get("feedbacks", {}).get("part3", "No feedback")}
         </div>
       </div>
 
       <div class="footer">
         <p>Thank you for taking the Speaking Mock test!</p>
-        <div class="evaluated-time">
-          Evaluated: {evaluation.get("evaluated_at", "N/A")}
-        </div>
-        <p style="margin-top: 15px; color: #bdc3c7;">
-          © 2025 MockStream & CodeCraft
-        </p>
+        <p>© 2025 MockStream & CodeCraft</p>
       </div>
     </div>
   </body>
 </html>
 """
+        try:
             send_email(
                 result_user.email,
-                f"Speaking mock #{mock_data.id} evaluation results",
+                f"🎤 Speaking Mock #{result.mock_id} - Evaluation Results",
                 message
             )
+        except Exception as e:
+            print(f"Email send error: {e}")
     
     db.commit()
     db.refresh(result)
+    
     return {
         "message": "Result evaluated successfully.",
         "result_id": result.id,
@@ -517,12 +482,12 @@ def get_mock_statistics(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No results found.")
     
     total_submissions = len(results)
-    evaluated = len([r for r in results if hasattr(r, 'evaluation') and r.evaluation])
+    evaluated = len([r for r in results if r.evaluation is not None])
     pending = total_submissions - evaluated
     
     avg_score = 0
     if evaluated > 0:
-        scores = [r.evaluation.get("scores", {}).get("total", 0) for r in results if hasattr(r, 'evaluation') and r.evaluation]
+        scores = [r.evaluation.get("scores", {}).get("total", 0) for r in results if r.evaluation]
         avg_score = sum(scores) / len(scores) if scores else 0
     
     return {
