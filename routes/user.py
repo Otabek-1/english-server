@@ -108,3 +108,4 @@ def func(data:premium, user = Depends(verify_role(['admin'])), db: Session = Dep
     except Exception as e:
         print(e)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error in premium function.")
+
