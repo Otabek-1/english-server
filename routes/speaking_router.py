@@ -5,18 +5,22 @@ from auth.auth import verify_role, get_current_user
 from database.db import get_db
 from services.email_service import send_email
 from datetime import datetime, timezone
-import shutil
-from pathlib import Path
-import zipfile
 import os
-from services.telegram_bot import send_audio_zip_to_telegram
+from pathlib import Path
 from typing import List
+import zipfile
+import io
+from supabase import create_client, Client
+from services.telegram_bot import send_audio_zip_to_telegram
+import requests
 
 router = APIRouter(prefix="/mock/speaking", tags=["Speaking", "Mock", "CEFR"])
 
-# ===== UPLOAD BASE PATH =====
-UPLOAD_BASE = Path("uploads/speaking")
-UPLOAD_BASE.mkdir(parents=True, exist_ok=True)
+# ===== SUPABASE CLIENT =====
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+BUCKET_NAME = "speaking-audios"
 
 
 # ===== GET ALL SPEAKING MOCKS =====
@@ -103,7 +107,7 @@ async def submit_speaking_result(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Submit speaking exam result with audio files"""
+    """Submit speaking exam result with audio files to Supabase"""
     
     # 1. Mock mavjudligini tekshirish
     mock = db.query(SpeakingMock).filter(SpeakingMock.id == mock_id).first()
@@ -116,30 +120,49 @@ async def submit_speaking_result(
         if current_user.premium_duration.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc):
             is_premium = True
 
-    # 3. Papka yaratish
+    # 3. Timestamp va folder path
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     folder_name = f"user{current_user.id}_mock{mock_id}_{timestamp}"
-    user_dir = UPLOAD_BASE / folder_name
-    user_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 4. Supabase'ga upload qilish
+    recordings_data = {}
+    try:
+        for audio in audios:
+            if not audio.content_type or not audio.content_type.startswith("audio/"):
+                continue
 
-    saved_paths = []
-    for audio in audios:
-        if not audio.content_type or not audio.content_type.startswith("audio/"):
-            continue
+            safe_filename = audio.filename.replace(" ", "_") if audio.filename else "audio.webm"
+            file_path = f"{folder_name}/{safe_filename}"
+            
+            # Supabase'ga upload
+            file_content = await audio.read()
+            supabase.storage.from_(BUCKET_NAME).upload(
+                file_path,
+                file_content,
+                {"content_type": audio.content_type}
+            )
+            
+            # Public URL olish
+            public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(file_path)
+            recordings_data[safe_filename.replace('.webm', '')] = public_url
+    
+    except Exception as e:
+        print(f"Supabase upload error: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
-        safe_filename = audio.filename.replace(" ", "_") if audio.filename else "audio.webm"
-        file_path = user_dir / safe_filename
-        with open(file_path, "wb") as f:
-            shutil.copyfileobj(audio.file, f)
-        saved_paths.append(file_path)
-
-    # 4. Agar premium bo'lmasa — ZIP yaratib Telegramga yuborish
+    # 5. Agar non-premium bo'lsa, ZIP yaratib Telegramga yuborish
     if not is_premium:
-        zip_path = user_dir.with_suffix(".zip")
         try:
-            with zipfile.ZipFile(zip_path, "w") as zf:
-                for fp in saved_paths:
-                    zf.write(fp, arcname=fp.name)
+            # ZIP memory'da yaratish
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for key, url in recordings_data.items():
+                    # URL'dan audio download qilish
+                    response = requests.get(url)
+                    if response.status_code == 200:
+                        zf.writestr(f"{key}.webm", response.content)
+            
+            zip_buffer.seek(0)
             
             caption = (
                 f"📱 Non-premium Submission\n"
@@ -147,22 +170,26 @@ async def submit_speaking_result(
                 f"📝 Mock ID: {mock_id}\n"
                 f"⏰ Time: {timestamp}"
             )
-            send_audio_zip_to_telegram(zip_path, caption=caption)
-
-        finally:
-            # Mahalliy fayllarni tozalash
-            if user_dir.exists():
-                shutil.rmtree(user_dir)
-            if zip_path.exists():
-                os.remove(zip_path)
-
+            send_audio_zip_to_telegram(zip_buffer, caption=caption)
+        
+        except Exception as e:
+            print(f"Telegram send error: {e}")
+        
+        # Non-premium'lar uchun Supabase'dagi audiolari o'chirish
+        try:
+            for key in recordings_data.keys():
+                file_path = f"{folder_name}/{key}.webm"
+                supabase.storage.from_(BUCKET_NAME).remove([file_path])
+        except Exception as e:
+            print(f"Supabase delete error: {e}")
+        
         recordings_data = {"status": "sent_to_telegram"}
 
     else:
-        # Premium — fayllar saqlanib qoladi, path'ni unix-style qil
-        recordings_data = {"folder": user_dir.as_posix()}
+        # Premium - Supabase URL'larni saqla
+        recordings_data = {"folder": folder_name, "audios": recordings_data}
 
-    # 5. DB ga yozish
+    # 6. DB ga yozish
     result = SpeakingResult(
         user_id=current_user.id,
         mock_id=mock_id,
@@ -177,7 +204,7 @@ async def submit_speaking_result(
         "message": "Submitted successfully",
         "result_id": result.id,
         "is_premium": is_premium,
-        "storage_type": "premium_backend" if is_premium else "telegram_archive"
+        "storage_type": "supabase" if is_premium else "telegram_archive"
     }
 
 
@@ -234,234 +261,122 @@ def check_result(
     db: Session = Depends(get_db),
     user = Depends(verify_role(['admin']))
 ):
-    """
-    Evaluate speaking result
-    
-    evaluation format:
-    {
-      "scores": {
-        "part1.1": 8,
-        "part1.2": 7,
-        "part2": 8,
-        "part3": 7,
-        "total": 30
-      },
-      "band": "B1",
-      "feedbacks": {
-        "part1.1": "Good pronunciation...",
-        "part1.2": "Good fluency...",
-        "part2": "Well structured...",
-        "part3": "Good discussion..."
-      },
-      "send_email": True
-    }
-    """
+    # ===== 0. Result mavjudligini tekshirish =====
     result = db.query(SpeakingResult).filter(SpeakingResult.id == id).first()
     if not result:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Result not found.")
-    
-    # Get user and mock info
+        raise HTTPException(status_code=404, detail="Result not found")
+
     result_user = db.query(User).filter(User.id == result.user_id).first()
-    mock_data = db.query(SpeakingMock).filter(SpeakingMock.id == result.mock_id).first()
-    
-    # ★★★ YANGI: Agar premium bo'lsa, barcha audio fayllarini ZIP qilib Telegramga yuborish ★★★
-    if result_user and result.recordings and "folder" in result.recordings:
-        folder_path = Path(result.recordings["folder"])
-        if folder_path.exists():
-            try:
-                zip_path = folder_path.with_suffix(".zip")
-                with zipfile.ZipFile(zip_path, "w") as zf:
-                    for fp in folder_path.rglob("*"):
-                        if fp.is_file():
-                            zf.write(fp, arcname=fp.relative_to(folder_path.parent))
 
-                caption = (
-                    f"✅ Premium user evaluation completed\n"
-                    f"👤 User ID: {result.user_id}\n"
-                    f"📝 Mock ID: {result.mock_id}\n"
-                    f"🏆 Band: {evaluation.get('band', 'N/A')}\n"
-                    f"📊 Total: {evaluation.get('scores', {}).get('total', 'N/A')}/40"
-                )
-                send_audio_zip_to_telegram(zip_path, caption=caption)
+    # ===== 1. ZIP qilib Telegramga yuborish =====
+    if result.recordings and "audios" in result.recordings:
+        try:
+            zip_buffer = io.BytesIO()
 
-                # Ixtiyoriy: ZIP faylni keyin o'chirish
-                zip_path.unlink(missing_ok=True)
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                for key, url in result.recordings["audios"].items():
+                    r = requests.get(url)
+                    if r.status_code == 200:
+                        zf.writestr(f"{key}.webm", r.content)
 
-            except Exception as e:
-                print(f"ZIP/Telegram send error: {e}")
-                
-    # Update result with evaluation
+            zip_buffer.seek(0)
+
+            caption = (
+                f"✅ Speaking Checked\n"
+                f"👤 User ID: {result.user_id}\n"
+                f"📝 Mock ID: {result.mock_id}\n"
+                f"🏆 Band: {evaluation.get('band')}\n"
+                f"📊 Total: {evaluation.get('scores', {}).get('total')}/40"
+            )
+
+            send_audio_zip_to_telegram(zip_buffer, caption)
+
+        except Exception as e:
+            print("Telegram ZIP error:", e)
+
+    # ===== 2. SUPABASE'DAN FOLDER + FILE'LARNI O‘CHIRISH =====
+    folder_name = result.recordings.get("folder") if result.recordings else None
+
+    if folder_name:
+        try:
+            files = supabase.storage.from_(BUCKET_NAME).list(folder_name)
+            paths = [f"{folder_name}/{f['name']}" for f in files]
+
+            if paths:
+                supabase.storage.from_(BUCKET_NAME).remove(paths)
+
+        except Exception as e:
+            print("Supabase delete error:", e)
+
+
+
+    # ===== 4. EVALUATION SAQLASH =====
     result.evaluation = {
         "scores": evaluation.get("scores"),
         "band": evaluation.get("band"),
         "feedbacks": evaluation.get("feedbacks"),
-        "evaluated_at": datetime.utcnow().isoformat()
+        "evaluated_at": datetime.utcnow().isoformat(),
+        "audio_archived": True
     }
-    
-    # Send email if requested
+
+    # ===== 5. EMAIL YUBORISH =====
     if evaluation.get("send_email") and result_user:
-        message = f"""
-<html>
-  <head>
-    <style>
-      body {{
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        line-height: 1.6;
-        color: #333;
-        background-color: #f5f5f5;
-      }}
-      .container {{
-        max-width: 600px;
-        margin: 20px auto;
-        background-color: white;
-        padding: 30px;
-        border-radius: 8px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      }}
-      .header {{
-        text-align: center;
-        border-bottom: 3px solid #3498db;
-        padding-bottom: 20px;
-        margin-bottom: 30px;
-      }}
-      .header h1 {{
-        color: #3498db;
-        margin: 0;
-        font-size: 28px;
-      }}
-      .score-box {{
-        background-color: #ecf0f1;
-        padding: 15px;
-        border-radius: 5px;
-        margin: 20px 0;
-        border-left: 4px solid #3498db;
-      }}
-      .score-row {{
-        display: flex;
-        justify-content: space-between;
-        padding: 10px 0;
-        border-bottom: 1px solid #bdc3c7;
-      }}
-      .band-display {{
-        text-align: center;
-        background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
-        color: white;
-        padding: 20px;
-        border-radius: 5px;
-        margin: 20px 0;
-        font-size: 32px;
-        font-weight: bold;
-      }}
-      .part-section {{
-        background-color: #f9f9f9;
-        padding: 15px;
-        margin: 15px 0;
-        border-radius: 5px;
-        border-left: 4px solid #2ecc71;
-      }}
-      .part-score {{
-        display: inline-block;
-        background-color: #2ecc71;
-        color: white;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 12px;
-        margin-bottom: 10px;
-      }}
-      .feedback-text {{
-        color: #555;
-        padding: 10px;
-        background-color: white;
-        border-radius: 3px;
-        font-style: italic;
-        border-left: 3px solid #f39c12;
-      }}
-      .footer {{
-        margin-top: 30px;
-        padding-top: 20px;
-        border-top: 1px solid #ecf0f1;
-        text-align: center;
-        color: #95a5a6;
-        font-size: 12px;
-      }}
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <div class="header">
-        <h1>🎤 Speaking Mock Review</h1>
-        <p>Your assessment results are ready</p>
-      </div>
+        scores = evaluation.get("scores", {})
+        feedbacks = evaluation.get("feedbacks", {})
 
-      <div class="score-box">
-        <div class="score-row">
-          <span style="font-weight: bold;">Mock ID:</span>
-          <span>{mock_data.id if mock_data else result.mock_id}</span>
-        </div>
-        <div class="score-row">
-          <span style="font-weight: bold;">Total Score:</span>
-          <span style="color: #3498db; font-weight: bold;">{evaluation.get("scores", {}).get("total", "N/A")}/40</span>
-        </div>
-      </div>
+        email_html = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; background:#f5f5f5;">
+          <div style="max-width:700px;margin:auto;background:#fff;padding:30px;border-radius:8px;">
+            <h2 style="color:#3498db;">🎤 Speaking Mock Evaluation</h2>
 
-      <div class="band-display">
-        {evaluation.get("band", "N/A")}
-      </div>
+            <p><strong>Mock ID:</strong> {result.mock_id}</p>
+            <p><strong>Overall Band:</strong> {evaluation.get('band')}</p>
+            <p><strong>Total Score:</strong> {scores.get('total')}/40</p>
 
-      <div class="part-section">
-        <div style="font-weight: bold; color: #2c3e50; margin-bottom: 8px;">✓ Part 1.1 - Individual Long Turn</div>
-        <div class="part-score">Score: {evaluation.get("scores", {}).get("part1.1", "N/A")}/10</div>
-        <div class="feedback-text">
-          {evaluation.get("feedbacks", {}).get("part1.1", "No feedback")}
-        </div>
-      </div>
+            <hr>
 
-      <div class="part-section">
-        <div style="font-weight: bold; color: #2c3e50; margin-bottom: 8px;">✓ Part 1.2 - Picture Description</div>
-        <div class="part-score">Score: {evaluation.get("scores", {}).get("part1.2", "N/A")}/10</div>
-        <div class="feedback-text">
-          {evaluation.get("feedbacks", {}).get("part1.2", "No feedback")}
-        </div>
-      </div>
+            <h3>Detailed Feedback</h3>
 
-      <div class="part-section">
-        <div style="font-weight: bold; color: #2c3e50; margin-bottom: 8px;">✓ Part 2 - Extended Monologue</div>
-        <div class="part-score">Score: {evaluation.get("scores", {}).get("part2", "N/A")}/10</div>
-        <div class="feedback-text">
-          {evaluation.get("feedbacks", {}).get("part2", "No feedback")}
-        </div>
-      </div>
+            <p><strong>Part 1.1:</strong> {scores.get('part1.1')}/10</p>
+            <p>{feedbacks.get('part1.1')}</p>
 
-      <div class="part-section">
-        <div style="font-weight: bold; color: #2c3e50; margin-bottom: 8px;">✓ Part 3 - Discussion</div>
-        <div class="part-score">Score: {evaluation.get("scores", {}).get("part3", "N/A")}/10</div>
-        <div class="feedback-text">
-          {evaluation.get("feedbacks", {}).get("part3", "No feedback")}
-        </div>
-      </div>
+            <p><strong>Part 1.2:</strong> {scores.get('part1.2')}/10</p>
+            <p>{feedbacks.get('part1.2')}</p>
 
-      <div class="footer">
-        <p>Thank you for taking the Speaking Mock test!</p>
-        <p>© 2025 MockStream & CodeCraft</p>
-      </div>
-    </div>
-  </body>
-</html>
-"""
+            <p><strong>Part 2:</strong> {scores.get('part2')}/10</p>
+            <p>{feedbacks.get('part2')}</p>
+
+            <p><strong>Part 3:</strong> {scores.get('part3')}/10</p>
+            <p>{feedbacks.get('part3')}</p>
+
+            <hr>
+            <p style="color:#888;font-size:12px;">
+              Your audio recordings have been securely reviewed and removed from storage.
+            </p>
+
+            <p style="font-size:12px;color:#aaa;">© 2025 MockStream</p>
+          </div>
+        </body>
+        </html>
+        """
+
         try:
             send_email(
                 result_user.email,
-                f"🎤 Speaking Mock #{result.mock_id} - Evaluation Results",
-                message
+                f"🎤 Speaking Mock #{result.mock_id} – Evaluation Result",
+                email_html
             )
         except Exception as e:
-            print(f"Email send error: {e}")
-    
+            print("Email send error:", e)
+    # ===== 3. RECORDINGS NI DB'DAN TOZALASH =====
+    db.delete(result)
+
+    # ===== 6. DB COMMIT =====
     db.commit()
-    db.refresh(result)
-    
+
     return {
-        "message": "Result evaluated successfully.",
+        "message": "Result checked, archived, deleted & emailed successfully",
         "result_id": result.id,
         "band": evaluation.get("band"),
         "total_score": evaluation.get("scores", {}).get("total")
