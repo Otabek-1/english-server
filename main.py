@@ -11,6 +11,8 @@ from routes.News import router as news_router
 from routes.speaking_router import router as speaking_router
 from routes.tts_router import router as tts_router
 from rate_limit import global_rate_limiter
+from services.email_service import send_email
+from pydantic import BaseModel
 
 app = FastAPI(title="Server")
 
@@ -33,6 +35,13 @@ app.include_router(news_router)
 app.include_router(speaking_router)
 app.include_router(tts_router)
 
+class mailModel(BaseModel):
+    full_name:str
+    email:str
+    message:str
+
+
+
 # ===== STATIC FILES - Audio, Images, etc. =====
 uploads_path = Path("uploads")
 uploads_path.mkdir(exist_ok=True)
@@ -41,3 +50,16 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 @app.get("/")
 def root():
     return {"message":"Server is live!"}
+
+@app.post('/contact')
+def contact(data:mailModel):
+    msg = f"""
+    Full name: {data.full_name}
+    <br><br><br>
+    Email: {data.email}
+    <br><br><br>
+    Message: {data.message}
+    """
+    
+    send_email(to_email="davirbekkhasanov02@gmail.com", subject=f"Message from {data.full_name}",message=msg)
+    return {"success":True}
