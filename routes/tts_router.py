@@ -11,9 +11,9 @@ def audio(data: dict):
     zip_buffer = BytesIO()
 
     with zipfile.ZipFile(zip_buffer, "w") as zipf:
-        for i in range(1, 9):
-            audio_fp = TTS(data[f"q{i}"])
-            zipf.writestr(f"q{i}.mp3", audio_fp.getvalue())
+        for key, text in data.items():
+            audio_fp = TTS(text)
+            zipf.writestr(f"{key}.mp3", audio_fp.getvalue())
 
     zip_buffer.seek(0)
 
