@@ -9,6 +9,7 @@ from routes.WritingMock import router as writing_router
 from routes.notification_router import router as notification_routes
 from routes.News import router as news_router
 from routes.speaking_router import router as speaking_router
+from routes.tts_router import router as tts_router
 from rate_limit import global_rate_limiter
 
 app = FastAPI(title="Server")
@@ -30,6 +31,7 @@ app.include_router(writing_router)
 app.include_router(notification_routes)
 app.include_router(news_router)
 app.include_router(speaking_router)
+app.include_router(tts_router)
 
 # ===== STATIC FILES - Audio, Images, etc. =====
 uploads_path = Path("uploads")
