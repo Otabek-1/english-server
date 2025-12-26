@@ -122,6 +122,71 @@ class news(Base):
     slug = Column(String)
     reactions = Column(JSON(String))
     created_at = Column(DateTime(timezone=True), default=func.now())
+    
+class ListeningMock(Base):
+    __tablename__ = "listening_mocks"
+
+    id = Column(Integer, primary_key=True)
+    title = Column(String(100), nullable=False)
+
+    # === SAVOLLAR DATA ===
+    data = Column(JSON, nullable=False)
+    # bu yerga SEN BERGAN `data` object 1:1 tushadi
+
+    # === AUDIO URLS (HAR PART UCHUN ALOHIDA) ===
+    audio_part_1 = Column(String, nullable=True)
+    audio_part_2 = Column(String, nullable=True)
+    audio_part_3 = Column(String, nullable=True)
+    audio_part_4 = Column(String, nullable=True)
+    audio_part_5 = Column(String, nullable=True)
+    audio_part_6 = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    answers = relationship(
+        "ListeningMockAnswer",
+        back_populates="mock",
+        uselist=False
+    )
+
+class ListeningMockAnswer(Base):
+    __tablename__ = "listening_mock_answers"
+
+    id = Column(Integer, primary_key=True)
+    mock_id = Column(
+        Integer,
+        ForeignKey("listening_mocks.id", ondelete="CASCADE"),
+        unique=True
+    )
+
+    # === PART 1 (1–8) ===
+    part_1 = Column(ARRAY(String), nullable=False)
+    # ["A", "C", "B", "A", "C", "B", "A", "C"]
+
+    # === PART 2 (9–14) ===
+    part_2 = Column(ARRAY(String), nullable=False)
+    # ["Saturday", "two", "director", "three", "15", "online"]
+
+    # === PART 3 (15–18) ===
+    part_3 = Column(ARRAY(String), nullable=False)
+    # ["A", "C", "F", "B"]
+
+    # === PART 4 (19–23) ===
+    part_4 = Column(ARRAY(String), nullable=False)
+    # ["C", "A", "D", "B", "E"]
+
+    # === PART 5 (24–29) ===
+    part_5 = Column(ARRAY(String), nullable=False)
+    # ["workman and customer", "has a change of mind", ...]
+
+    # === PART 6 (30–35) ===
+    part_6 = Column(ARRAY(String), nullable=False)
+    # ["universal", "remove", "evidence", "claim", "gesture", "symbol"]
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    mock = relationship("ListeningMock", back_populates="answers")
+
 
 
 Base.metadata.create_all(bind=engine)
