@@ -187,9 +187,14 @@ class ListeningMockAnswer(Base):
 
     mock = relationship("ListeningMock", back_populates="answers")
 
+class Permissions(Base):
+    __tablename__ = "permissions"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer,ForeignKey("users.id",ondelete="CASCADE"))
+    
+    permissions = Column(JSON(String))
 
-
-Base.metadata.create_all(bind=engine)
+# Base.metadata.create_all(bind=engine)
 
 
 def get_db():

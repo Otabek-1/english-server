@@ -11,6 +11,7 @@ from routes.News import router as news_router
 from routes.speaking_router import router as speaking_router
 from routes.tts_router import router as tts_router
 from routes.listening_router import router as listening_router
+from routes.permissions_router import router as perm_router
 from rate_limit import global_rate_limiter
 from services.email_service import send_email
 from pydantic import BaseModel
@@ -36,6 +37,7 @@ app.include_router(news_router)
 app.include_router(speaking_router)
 app.include_router(tts_router)
 app.include_router(listening_router)
+app.include_router(perm_router)
 
 class mailModel(BaseModel):
     full_name:str
