@@ -164,30 +164,144 @@ def delete_answers(
     return {"message": "Answer deleted successfully."}
 
 @router.post("/submit")
-def check_mock(data:Results, db:Session = Depends(get_db)):
-    exists = db.query(ReadingMockQuestion).filter(ReadingMockQuestion.id == data.question_id).first()
-    if not exists:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Answers not found.")
-    answers = exists.answers
-    results = dict()
-    results["part1"] = 0
-    results["part2"] = 0
-    results["part3"] = 0
-    results["part4"] = 0
-    results["part5"] = 0
-    for i,ans in enumerate(data.part1):
-        if answers.part1[i].lower() == ans.lower():
-            results["part1"]+=1
-    for i, ans in enumerate(data.part2):
-        if answers.part2[i].lower() == ans.lower():
-            results["part2"]+=1
-    for i, ans in enumerate(data.part3):
-        if answers.part3[i].lower() == ans.lower():
-            results["part3"]+=1
-    for i, ans in enumerate(data.part4):
-        if answers.part4[i].lower() == ans.lower():
-            results["part4"]+=1
-    for i, ans in enumerate(data.part5):
-        if answers.part5[i].lower() == ans.lower():
-            results["part5"]+=1
+def check_mock(data: Results, db: Session = Depends(get_db)):
+    """
+    Check user answers against correct answers
+    
+    Part 1: 6 gaps - tekshirish case-insensitive
+    Part 2: 10 matching answers - tekshirish case-insensitive (raqam yoki harf)
+    Part 3: 6 heading answers - tekshirish case-insensitive (raqam yoki harf)
+    Part 4 MC: 4 questions - tekshirish case-insensitive (A/B/C/D)
+    Part 4 TF: 5 statements - tekshirish case-insensitive (True/False/Not Given)
+    Part 5 Mini: 5 gaps - tekshirish case-insensitive
+    Part 5 MC: 2 questions - tekshirish case-insensitive (A/B/C/D)
+    """
+    
+    # Question mavjudligini tekshir
+    question = db.query(ReadingMockQuestion).filter(
+        ReadingMockQuestion.id == data.question_id
+    ).first()
+    
+    if not question:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Question not found."
+        )
+    
+    # Javoblarni olish
+    answer_obj = question.answers
+    
+    if not answer_obj:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Answers not found."
+        )
+    
+    # Natijalar dictionary
+    results = {
+        "part1": 0,
+        "part2": 0,
+        "part3": 0,
+        "part4MC": 0,
+        "part4TF": 0,
+        "part5Mini": 0,
+        "part5MC": 0,
+        "total": 0
+    }
+    
+    # ============ PART 1 TEKSHIRISH ============
+    # 6 ta bo'shliq - so'z yoki raqam
+    try:
+        for i, user_ans in enumerate(data.part1):
+            if i < len(answer_obj.part1):
+                correct_ans = answer_obj.part1[i].strip().lower()
+                user_answer = user_ans.strip().lower()
+                if correct_ans == user_answer:
+                    results["part1"] += 1
+    except Exception as e:
+        print(f"Part 1 error: {e}")
+    
+    # ============ PART 2 TEKSHIRISH ============
+    # 10 ta matching - raqam yoki harf (1-7 orasida)
+    try:
+        for i, user_ans in enumerate(data.part2):
+            if i < len(answer_obj.part2):
+                correct_ans = answer_obj.part2[i].strip().lower()
+                user_answer = user_ans.strip().lower()
+                if correct_ans == user_answer:
+                    results["part2"] += 1
+    except Exception as e:
+        print(f"Part 2 error: {e}")
+    
+    # ============ PART 3 TEKSHIRISH ============
+    # 6 ta paragraf - sarlavha raqami (1-8 orasida)
+    try:
+        for i, user_ans in enumerate(data.part3):
+            if i < len(answer_obj.part3):
+                correct_ans = answer_obj.part3[i].strip().lower()
+                user_answer = user_ans.strip().lower()
+                if correct_ans == user_answer:
+                    results["part3"] += 1
+    except Exception as e:
+        print(f"Part 3 error: {e}")
+    
+    # ============ PART 4 MC TEKSHIRISH ============
+    # 4 ta test savol - A/B/C/D
+    try:
+        for i, user_ans in enumerate(data.part4MC):
+            if i < len(answer_obj.part4MC):
+                correct_ans = answer_obj.part4MC[i].strip().upper()
+                user_answer = user_ans.strip().upper()
+                if correct_ans == user_answer:
+                    results["part4MC"] += 1
+    except Exception as e:
+        print(f"Part 4 MC error: {e}")
+    
+    # ============ PART 4 TRUE/FALSE/NOT GIVEN TEKSHIRISH ============
+    # 5 ta statement - True/False/Not Given
+    try:
+        for i, user_ans in enumerate(data.part4TF):
+            if i < len(answer_obj.part4TF):
+                correct_ans = answer_obj.part4TF[i].strip().lower()
+                user_answer = user_ans.strip().lower()
+                if correct_ans == user_answer:
+                    results["part4TF"] += 1
+    except Exception as e:
+        print(f"Part 4 TF error: {e}")
+    
+    # ============ PART 5 MINI TEXT TEKSHIRISH ============
+    # 5 ta bo'shliq - so'z yoki raqam
+    try:
+        for i, user_ans in enumerate(data.part5Mini):
+            if i < len(answer_obj.part5Mini):
+                correct_ans = answer_obj.part5Mini[i].strip().lower()
+                user_answer = user_ans.strip().lower()
+                if correct_ans == user_answer:
+                    results["part5Mini"] += 1
+    except Exception as e:
+        print(f"Part 5 Mini error: {e}")
+    
+    # ============ PART 5 MC TEKSHIRISH ============
+    # 2 ta test savol - A/B/C/D
+    try:
+        for i, user_ans in enumerate(data.part5MC):
+            if i < len(answer_obj.part5MC):
+                correct_ans = answer_obj.part5MC[i].strip().upper()
+                user_answer = user_ans.strip().upper()
+                if correct_ans == user_answer:
+                    results["part5MC"] += 1
+    except Exception as e:
+        print(f"Part 5 MC error: {e}")
+    
+    # ============ UMUMIY NATIJA ============
+    results["total"] = (
+        results["part1"] + 
+        results["part2"] + 
+        results["part3"] + 
+        results["part4MC"] + 
+        results["part4TF"] + 
+        results["part5Mini"] + 
+        results["part5MC"]
+    )
+    
     return results
