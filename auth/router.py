@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from .auth import hash_password, create_access_token, create_refresh_token, verify_password, verify_access_token, verify_refresh_token
 from .schema import RegisterUser, LoginUser, TokenRefreshSchema
 from database.db import get_db, User, Notification
+from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/auth")
 
@@ -12,7 +13,8 @@ def register_user(data: RegisterUser, db: Session = Depends(get_db)):
     if email_exists:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already exists.")
     try:
-        new_user = User(username=data.username, email=data.email, password=hash_password(data.password))
+        now = datetime.utcnow() + timedelta(days=5)
+        new_user = User(username=data.username, email=data.email, password=hash_password(data.password),premium_duration=now)
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
