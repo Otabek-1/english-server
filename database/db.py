@@ -17,13 +17,16 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     username = Column(String(20), unique=True)
     email = Column(String(100), unique=True)
-    role = Column(String(10), default="user")  # admin / user
-    password = Column(String(255))
+    role = Column(String(10), default="user")
+
+    password = Column(String(255), nullable=True)   # Google userlarda NULL bo‘ladi
+    google_avatar = Column(String, nullable=True)
+
     premium_duration = Column(DateTime, nullable=True, default=None)
+
     notifications = relationship("Notification", back_populates="user")
     speaking_results = relationship("SpeakingResult", back_populates="user")
-    google_avatar = Column(String, nullable=True)
-    password = Column(String, nullable=True)
+
 
 
 

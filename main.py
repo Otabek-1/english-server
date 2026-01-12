@@ -15,8 +15,14 @@ from routes.permissions_router import router as perm_router
 from rate_limit import global_rate_limiter
 from services.email_service import send_email
 from pydantic import BaseModel
+from starlette.middleware.sessions import SessionMiddleware
 
 app = FastAPI(title="Server")
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key="allakakachiffejsfljgkldngkjgnksrjkngrjk32"
+)
 
 # app.middleware("http")(global_rate_limiter)
 app.add_middleware(
