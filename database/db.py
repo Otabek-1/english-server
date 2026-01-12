@@ -22,6 +22,9 @@ class User(Base):
     premium_duration = Column(DateTime, nullable=True, default=None)
     notifications = relationship("Notification", back_populates="user")
     speaking_results = relationship("SpeakingResult", back_populates="user")
+    google_avatar = Column(String, nullable=True)
+    password = Column(String, nullable=True)
+
 
 
 class SpeakingMock(Base):

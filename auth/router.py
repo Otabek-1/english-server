@@ -4,8 +4,59 @@ from .auth import hash_password, create_access_token, create_refresh_token, veri
 from .schema import RegisterUser, LoginUser, TokenRefreshSchema
 from database.db import get_db, User, Notification
 from datetime import datetime, timedelta
+from fastapi import Request
+from starlette.responses import RedirectResponse
+from authlib.integrations.starlette_client import OAuth
+import os
+
 
 router = APIRouter(prefix="/auth")
+
+oauth = OAuth()
+
+oauth.register(
+    name="google",
+    client_id=os.getenv("GOOGLE_CLIENT_ID"),
+    client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+    server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+    client_kwargs={"scope": "openid email profile"},
+)
+
+@router.get("/google/login")
+async def google_login(request: Request):
+    redirect_uri = request.url_for("google_callback")
+    return await oauth.google.authorize_redirect(request, redirect_uri)
+
+@router.get("/google/callback")
+async def google_callback(request: Request, db: Session = Depends(get_db)):
+    token = await oauth.google.authorize_access_token(request)
+    user_info = token["userinfo"]
+
+    email = user_info["email"]
+    name = user_info["name"]
+    avatar = user_info["picture"]
+
+    user = db.query(User).filter(User.email == email).first()
+
+    if not user:
+        user = User(
+            username=name,
+            email=email,
+            password=None,
+            google_avatar=avatar
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    payload = {"id": user.id, "email": user.email}
+
+    access = create_access_token(payload)
+    refresh = create_refresh_token(payload)
+
+    return RedirectResponse(
+        f"{os.getenv('FRONTEND_URL')}/auth?access={access}&refresh={refresh}"
+    )
 
 @router.post("/register")
 def register_user(data: RegisterUser, db: Session = Depends(get_db)):
