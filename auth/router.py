@@ -40,7 +40,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
 
     if not user:
         user = User(
-            username=name,
+            username=name[0],
             email=email,
             password=None,
             google_avatar=avatar
