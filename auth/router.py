@@ -8,6 +8,8 @@ from fastapi import Request
 from starlette.responses import RedirectResponse
 from authlib.integrations.starlette_client import OAuth
 import os
+import re
+import random
 
 
 router = APIRouter(prefix="/auth")
@@ -21,6 +23,29 @@ oauth.register(
     server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
     client_kwargs={"scope": "openid email profile"},
 )
+
+def generate_unique_username(name: str, db: Session) -> str:
+    """
+    Google ismidan clean username generatsiya qilish
+    - Spaces va special characters olib tashlash
+    - Random 2-3 talik suffix qo'shish
+    """
+    # Spaces va special characters olib tashlash (faqat alphanumeric saqla)
+    clean_name = re.sub(r'[^a-zA-Z0-9]', '', name).lower()
+    
+    # Agar name bo'sh bo'lsa, default username
+    if not clean_name:
+        clean_name = "user"
+    
+    # Random suffix qo'shish (10-999 oralig'ida)
+    while True:
+        suffix = random.randint(10, 999)
+        username = f"{clean_name}{suffix}"
+        
+        # Username unique ekanligini tekshirish
+        existing_user = db.query(User).filter(User.username == username).first()
+        if not existing_user:
+            return username
 
 @router.get("/google/login")
 async def google_login(request: Request):
@@ -39,8 +64,11 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == email).first()
 
     if not user:
+        # Clean username generatsiya qilish
+        username = generate_unique_username(name, db)
+        
         user = User(
-            username=name[0],
+            username=username,
             email=email,
             password=None,
             google_avatar=avatar
