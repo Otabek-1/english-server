@@ -7,6 +7,9 @@ from datetime import datetime
 
 load_dotenv()
 
+# Session Model import qilish
+# (Session modelni database.session_model dan import qilgin kerak)
+
 engine = create_engine(url=os.getenv("DATABASE_URL"))
 Base = declarative_base()
 SessionLocal = sessionmaker(bind=engine)
