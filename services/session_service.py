@@ -1,5 +1,4 @@
 from sqlalchemy.orm import Session
-from database.db import Session as SessionModel
 from database.session_model import Session as SessionDB
 from typing import List, Optional
 from datetime import datetime
