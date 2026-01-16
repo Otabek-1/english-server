@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from database.db import get_db, Permissions
 from auth.auth import verify_role
 from sqlalchemy.orm import Session
@@ -7,7 +7,7 @@ from schemas.PermissionsSchema import data
 router = APIRouter(prefix="/permissions", tags=["Permissions"])
 
 @router.get('/')
-def get_all_permissions(db:Session = Depends(get_db)):
+def get_all_permissions(db:Session = Depends(get_db), user = Depends(verify_role(['admin']))):
     res = db.query(Permissions).all()
     return res
 
@@ -35,8 +35,10 @@ def update_permissions(user_id:int, data:data, db: Session = Depends(get_db),use
     return {'message':"Success"}
 
 @router.delete("/{user_id}")
-def delete_permission(user_id:int, db: Session = Depends(get_db)):
+def delete_permission(user_id:int, db: Session = Depends(get_db), user = Depends(verify_role(['admin']))):
     res=  db.query(Permissions).filter(Permissions.user_id==user_id).first()
+    if not res:
+        raise HTTPException(status_code=404, detail="Permission not found")
     db.delete(res)
     db.commit()
     return {"message":"Success"}

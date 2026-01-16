@@ -25,16 +25,16 @@ BUCKET_NAME = "speaking-audios"
 
 # ===== GET ALL SPEAKING MOCKS =====
 @router.get("/all")
-def get_all_speaking_mocks(db: Session = Depends(get_db)):
-    """Get all speaking mocks"""
+def get_all_speaking_mocks(db: Session = Depends(get_db), user = Depends(get_current_user)):
+    """Get all speaking mocks - authenticated users only"""
     data = db.query(SpeakingMock).all()
     return data
 
 
 # ===== GET MOCK BY ID =====
 @router.get("/mock/{id}")
-def get_mock_by_id(id: int, db: Session = Depends(get_db)):
-    """Get speaking mock by ID"""
+def get_mock_by_id(id: int, db: Session = Depends(get_db), user = Depends(get_current_user)):
+    """Get speaking mock by ID - authenticated users only"""
     mock = db.query(SpeakingMock).filter(SpeakingMock.id == id).first()
     if not mock:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mock not found.")

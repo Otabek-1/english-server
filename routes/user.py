@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 router = APIRouter(prefix="/user")
 
 @router.get("/users")
-def get_users(db: Session = Depends(get_db)):
+def get_users(db: Session = Depends(get_db), user = Depends(verify_role(['admin']))):
     try:
         users = db.query(User).all()
         return users

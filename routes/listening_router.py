@@ -1,18 +1,18 @@
 from fastapi import APIRouter, Depends, status, HTTPException
 from database.db import get_db, User, ListeningMock, ListeningMockAnswer
-from auth.auth import verify_access_token, verify_role
+from auth.auth import verify_access_token, verify_role, get_current_user
 from schemas.listeningSchema import ListeningMockSchema, ListeningMockAnswersSchema
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/cefr/listening", tags=["Listening"])
 
 @router.get("/all")
-def get_all_mocks(db:Session = Depends(get_db)):
+def get_all_mocks(db:Session = Depends(get_db), user = Depends(get_current_user)):
     res = db.query(ListeningMock).all()
     return res
 
 @router.get("/{id}")
-def get_listening(id:int,db: Session = Depends(get_db)):
+def get_listening(id:int,db: Session = Depends(get_db), user = Depends(get_current_user)):
     res = db.query(ListeningMock).filter(ListeningMock.id == id).first()
     return res
 

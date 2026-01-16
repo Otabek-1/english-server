@@ -1,13 +1,15 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from services.tts_service import TTS
 from io import BytesIO
 import zipfile
+from auth.auth import get_current_user
+from database.db import User
 
 router = APIRouter(prefix="/tts", tags=["TTS"])
 
 @router.post("/audio")
-def audio(data: dict):
+def audio(data: dict, current_user: User = Depends(get_current_user)):
     zip_buffer = BytesIO()
 
     with zipfile.ZipFile(zip_buffer, "w") as zipf:
