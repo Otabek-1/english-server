@@ -207,7 +207,139 @@ async def submit_speaking_result(
         "storage_type": "supabase" if is_premium else "telegram_archive"
     }
 
+from pydantic import BaseModel
+from typing import List, Dict
+import base64
 
+# ===== PYDANTIC MODEL FOR MOBILE =====
+class MobileAudioData(BaseModel):
+    question_id: str
+    base64_audio: str  # base64 encoded audio
+
+class MobileSubmitRequest(BaseModel):
+    mock_id: int
+    total_duration: int
+    audios: List[MobileAudioData]
+
+@router.post("/submit-mobile")
+async def submit_speaking_result_mobile(
+    request: MobileSubmitRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Submit speaking exam result from mobile app with base64 encoded audio files"""
+    
+    mock_id = request.mock_id
+    total_duration = request.total_duration
+    audios = request.audios
+    
+    # 1. Mock mavjudligini tekshirish
+    mock = db.query(SpeakingMock).filter(SpeakingMock.id == mock_id).first()
+    if not mock:
+        raise HTTPException(status_code=404, detail="Mock not found")
+
+    # 2. Premium statusini tekshirish
+    is_premium = False
+    if current_user.premium_duration is not None:
+        if current_user.premium_duration.replace(tzinfo=timezone.utc) > datetime.now(timezone.utc):
+            is_premium = True
+
+    # 3. Timestamp va folder path
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    folder_name = f"user{current_user.id}_mock{mock_id}_{timestamp}"
+    
+    # 4. Supabase'ga upload qilish (base64 dan)
+    recordings_data = {}
+    try:
+        for audio_data in audios:
+            try:
+                # Base64 decode
+                audio_bytes = base64.b64decode(audio_data.base64_audio)
+                
+                safe_filename = f"{audio_data.question_id}.m4a"
+                file_path = f"{folder_name}/{safe_filename}"
+                
+                # Supabase'ga upload
+                supabase.storage.from_(BUCKET_NAME).upload(
+                    file_path,
+                    audio_bytes,
+                    {"content_type": "audio/mp4"}
+                )
+                
+                # Public URL olish
+                public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(file_path)
+                recordings_data[audio_data.question_id] = public_url
+                
+                print(f"✅ Uploaded: {safe_filename}")
+            
+            except Exception as audio_err:
+                print(f"❌ Error uploading {audio_data.question_id}: {audio_err}")
+                # Continue with other files
+                continue
+    
+    except Exception as e:
+        print(f"Supabase upload error: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+    # 5. Agar non-premium bo'lsa, ZIP yaratib Telegramga yuborish
+    if not is_premium:
+        try:
+            # ZIP memory'da yaratish
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for key, url in recordings_data.items():
+                    # URL'dan audio download qilish
+                    response = requests.get(url)
+                    if response.status_code == 200:
+                        zf.writestr(f"{key}.m4a", response.content)
+            
+            zip_buffer.seek(0)
+            
+            caption = (
+                f"📱 Mobile Non-premium Submission\n"
+                f"👤 User ID: {current_user.id}\n"
+                f"📝 Mock ID: {mock_id}\n"
+                f"⏰ Time: {timestamp}"
+            )
+            send_audio_zip_to_telegram(zip_buffer, caption=caption)
+        
+        except Exception as e:
+            print(f"Telegram send error: {e}")
+        
+        # Non-premium'lar uchun Supabase'dagi audiolari o'chirish
+        try:
+            for key in recordings_data.keys():
+                file_path = f"{folder_name}/{key}.m4a"
+                supabase.storage.from_(BUCKET_NAME).remove([file_path])
+        except Exception as e:
+            print(f"Supabase delete error: {e}")
+        
+        recordings_data = {"status": "sent_to_telegram"}
+
+    else:
+        # Premium - Supabase URL'larni saqla
+        recordings_data = {"folder": folder_name, "audios": recordings_data}
+
+    # 6. DB ga yozish
+    result = SpeakingResult(
+        user_id=current_user.id,
+        mock_id=mock_id,
+        recordings=recordings_data,
+        total_duration=total_duration
+    )
+    db.add(result)
+    db.commit()
+    db.refresh(result)
+
+    return {
+        "message": "Submitted successfully from mobile",
+        "result_id": result.id,
+        "is_premium": is_premium,
+        "storage_type": "supabase" if is_premium else "telegram_archive",
+        "files_uploaded": len(recordings_data)
+    }
+    
+    
 # ===== GET ALL RESULTS (ADMIN ONLY) =====
 @router.get("/results")
 def get_all_results(
