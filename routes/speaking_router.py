@@ -13,6 +13,13 @@ import io
 from supabase import create_client, Client
 from services.telegram_bot import send_audio_zip_to_telegram
 import requests
+from pydantic import BaseModel
+
+class MobileSingleAudio(BaseModel):
+    mock_id: int
+    question_id: str
+    base64_audio: str
+
 
 router = APIRouter(prefix="/mock/speaking", tags=["Speaking", "Mock", "CEFR"])
 
@@ -383,6 +390,87 @@ def get_result_by_id(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized.")
     
     return {"result": result}
+
+@router.post("/upload-answer")
+async def upload_single_answer(
+    data: MobileSingleAudio,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # 1. Mock tekshiruv
+    mock = db.query(SpeakingMock).filter(SpeakingMock.id == data.mock_id).first()
+    if not mock:
+        raise HTTPException(status_code=404, detail="Mock not found")
+
+    # 2. Folder (bitta exam session uchun)
+    folder = f"user{current_user.id}_mock{data.mock_id}"
+
+    # 3. Base64 decode
+    try:
+        audio_bytes = base64.b64decode(data.base64_audio)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64")
+
+    filename = f"{data.question_id}.m4a"
+    file_path = f"{folder}/{filename}"
+
+    # 4. Supabase upload
+    supabase.storage.from_(BUCKET_NAME).upload(
+        file_path,
+        audio_bytes,
+        {"content_type": "audio/mp4"}
+    )
+
+    public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(file_path)
+
+    # 5. DB da vaqtincha saqlaymiz (MUHIM)
+    result = db.query(SpeakingResult).filter(
+        SpeakingResult.user_id == current_user.id,
+        SpeakingResult.mock_id == data.mock_id,
+        SpeakingResult.evaluation == None
+    ).first()
+
+    if not result:
+        result = SpeakingResult(
+            user_id=current_user.id,
+            mock_id=data.mock_id,
+            recordings={"audios": {}},
+            total_duration=0
+        )
+        db.add(result)
+
+    result.recordings["audios"][data.question_id] = public_url
+    db.commit()
+
+    return {
+        "status": "ok",
+        "question_id": data.question_id,
+        "url": public_url
+    }
+
+class FinishExamRequest(BaseModel):
+    mock_id: int
+    total_duration: int
+
+@router.post("/finish-exam")
+def finish_exam(
+    data: FinishExamRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    result = db.query(SpeakingResult).filter(
+        SpeakingResult.user_id == current_user.id,
+        SpeakingResult.mock_id == data.mock_id,
+        SpeakingResult.evaluation == None
+    ).first()
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Result not found")
+
+    result.total_duration = data.total_duration
+    db.commit()
+
+    return {"message": "Exam finished"}
 
 
 # ===== CHECK/EVALUATE RESULT (ADMIN ONLY) =====
