@@ -9,7 +9,7 @@ from database.db import User
 router = APIRouter(prefix="/tts", tags=["TTS"])
 
 @router.post("/audio")
-def audio(data: dict, current_user: User = Depends(get_current_user)):
+def audio(data: dict):
     zip_buffer = BytesIO()
 
     with zipfile.ZipFile(zip_buffer, "w") as zipf:
