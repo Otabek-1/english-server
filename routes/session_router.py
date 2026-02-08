@@ -4,19 +4,11 @@ from database.db import get_db, User
 from database.session_model import Session as SessionDB
 from schemas.session_schema import SessionCreate, SessionResponse
 from services.session_service import SessionService
-from auth.auth import verify_access_token
+from auth.auth import verify_access_token,get_current_user
 from typing import List
 
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
-
-
-def get_current_user(token: str = Depends(verify_access_token), db: Session = Depends(get_db)):
-    """Hozirgi user ni tekshirish"""
-    user = db.query(User).filter(User.id == token["user_id"]).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
 
 
 @router.post("/create", response_model=SessionResponse)
