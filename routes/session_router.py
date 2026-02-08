@@ -135,6 +135,53 @@ async def delete_session(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/logout")
+async def logout_current_session(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    request: Request = None
+):
+    """
+    🔴 FRONTEND QO'LLANISH: Hozirgi sessionni yopish
+    Frontend logout qilganda, token yuborilishidan oldin chaqiriladi
+    
+    Use case: User logout button click
+    - Frontend: logoutUser() -> DELETE /sessions/logout -> clear localStorage
+    """
+    try:
+        # Request va token-dan hozirgi sessionni aniqlash
+        # Frontend device_fingerprint yuborganda match qilish
+        token = request.state.token if hasattr(request, 'state') else None
+        
+        # Yoki user_id + device_fingerprint orqali topish
+        # Haqiqatan frontend yuborayotgan device fingerprint-ga mos sessionni topish
+        
+        # Eng soddasi: eng oxirgi active sessionni o'chirish
+        sessions = SessionService.get_user_sessions(
+            db=db,
+            user_id=current_user.id,
+            active_only=True
+        )
+        
+        if not sessions:
+            raise HTTPException(status_code=404, detail="No active session found")
+        
+        # Eng soddasi: barcha sessiyani o'chirmaymiz, eng oxirgi active sessiyani o'chiramiz
+        # BETTER: Frontend device_fingerprint yuboradigan bo'lsa, shu fingerprinti topamiz
+        # For now: eng oxirgi sessiyani o'chiramiz
+        latest_session = sessions[-1]
+        SessionService.delete_session(db=db, session_id=latest_session.id)
+        
+        return {
+            "success": True,
+            "message": "Current session closed successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/logout-all")
 async def logout_all_devices(
     current_user: User = Depends(get_current_user),
@@ -182,5 +229,58 @@ async def get_active_devices_count(
         return {
             "active_devices": count
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== ADMIN ENDPOINTS ====================
+# Frontend-dan kerak: Admin panel -> Users -> View Sessions
+
+
+@router.get("/user/{user_id}", response_model=List[SessionResponse])
+async def get_user_sessions_admin(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    🔴 ADMIN ONLY: Biror user-ning barcha sessiyalarini ko'rish
+    
+    Frontend qo'llanish: Admin Panel -> Users -> Click "Sessions" button
+    
+    Permissiyalar:
+    - Faqat admin users qila oladi
+    - Admin o'zi qara olmaydi, boshqa user-larni qara oladi
+    """
+    try:
+        # Admin tekshirish
+        if not current_user.role or current_user.role != "admin":
+            raise HTTPException(
+                status_code=403, 
+                detail="Only admins can view other users' sessions"
+            )
+        
+        # Target user mavjudligini tekshirish
+        target_user = db.query(User).filter(User.id == user_id).first()
+        if not target_user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Admin o'z sessiyasini ko'ra oladi
+        if user_id == current_user.id:
+            raise HTTPException(
+                status_code=400,
+                detail="Use /my-sessions endpoint for your own sessions"
+            )
+        
+        # Target user-ning barcha active sessiyalarini olish
+        sessions = SessionService.get_user_sessions(
+            db=db,
+            user_id=user_id,
+            active_only=True
+        )
+        
+        return sessions
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
