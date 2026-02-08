@@ -158,7 +158,7 @@ async def submit_speaking_result(
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
     # 5. Agar non-premium bo'lsa, ZIP yaratib Telegramga yuborish
-    if not is_premium:
+    if not is_premium or is_premium:
         try:
             # ZIP memory'da yaratish
             zip_buffer = io.BytesIO()
@@ -289,7 +289,7 @@ async def submit_speaking_result_mobile(
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
     # 5. Agar non-premium bo'lsa, ZIP yaratib Telegramga yuborish
-    if not is_premium:
+    if not is_premium or is_premium:
         try:
             # ZIP memory'da yaratish
             zip_buffer = io.BytesIO()
@@ -303,7 +303,7 @@ async def submit_speaking_result_mobile(
             zip_buffer.seek(0)
             
             caption = (
-                f"📱 Mobile Non-premium Submission\n"
+                f"📱 Mobile {'Premium user' if is_premium else 'Non-premium'} Submission\n"
                 f"👤 User ID: {current_user.id}\n"
                 f"📝 Mock ID: {mock_id}\n"
                 f"⏰ Time: {timestamp}"
