@@ -294,11 +294,23 @@ async def submit_speaking_result_mobile(
             # ZIP memory'da yaratish
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-                for key, url in recordings_data.items():
-                    # URL'dan audio download qilish
-                    response = requests.get(url)
-                    if response.status_code == 200:
-                        zf.writestr(f"{key}.m4a", response.content)
+                total_files = len(recordings_data)
+                print(f"📦 ZIP creatingda {total_files} fayl bor")
+                
+                for idx, (key, url) in enumerate(recordings_data.items(), 1):
+                    try:
+                        print(f"⬇️  Downloading file {idx}/{total_files}: {key}")
+                        # URL'dan audio download qilish
+                        response = requests.get(url, timeout=30)
+                        if response.status_code == 200:
+                            zf.writestr(f"{key}.m4a", response.content)
+                            print(f"✅ Added to ZIP: {key}.m4a")
+                        else:
+                            print(f"⚠️  {key}: HTTP {response.status_code}")
+                    except requests.exceptions.Timeout:
+                        print(f"❌ Timeout for {key}")
+                    except Exception as download_err:
+                        print(f"❌ Error downloading {key}: {download_err}")
             
             zip_buffer.seek(0)
             
@@ -494,10 +506,22 @@ def check_result(
             zip_buffer = io.BytesIO()
 
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-                for key, url in result.recordings["audios"].items():
-                    r = requests.get(url)
-                    if r.status_code == 200:
-                        zf.writestr(f"{key}.webm", r.content)
+                total_files = len(result.recordings["audios"])
+                print(f"📦 ZIP creatingda {total_files} fayl bor")
+                
+                for idx, (key, url) in enumerate(result.recordings["audios"].items(), 1):
+                    try:
+                        print(f"⬇️  Downloading file {idx}/{total_files}: {key}")
+                        r = requests.get(url, timeout=30)
+                        if r.status_code == 200:
+                            zf.writestr(f"{key}.webm", r.content)
+                            print(f"✅ Added to ZIP: {key}.webm")
+                        else:
+                            print(f"⚠️  {key}: HTTP {r.status_code}")
+                    except requests.exceptions.Timeout:
+                        print(f"❌ Timeout for {key} (URL: {url[:50]}...)")
+                    except Exception as download_err:
+                        print(f"❌ Error downloading {key}: {download_err}")
 
             zip_buffer.seek(0)
 
