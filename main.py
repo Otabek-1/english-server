@@ -17,8 +17,12 @@ from rate_limit import global_rate_limiter
 from services.email_service import send_email
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
+from dotenv import load_dotenv
+import os
+
 
 app = FastAPI(title="Server")
+load_dotenv()
 
 app.add_middleware(
     SessionMiddleware,
@@ -75,3 +79,11 @@ def contact(data:mailModel):
     
     send_email(to_email="davirbekkhasanov02@gmail.com", subject=f"Message from {data.full_name}",message=msg)
     return {"success":True}
+
+class keyData(BaseModel):
+    password:str
+
+@app.post('/key')
+def get_key(data:keyData):
+    if data.password == 'mocksTream10010512111111497':
+        return {'key': os.getenv("GEMINI_API_KEY")}
