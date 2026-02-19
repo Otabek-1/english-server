@@ -200,7 +200,13 @@ class Permissions(Base):
     
     permissions = Column(JSON(String))
 
-# Base.metadata.create_all(bind=engine)
+class Submissions(Base):
+    __tablename__="submissions"
+    id = Column(Integer, primary_key=True)
+    username = Column(String)
+    section = Column(String)
+
+Base.metadata.create_all(bind=engine)
 
 
 def get_db():
