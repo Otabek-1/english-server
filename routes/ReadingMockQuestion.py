@@ -303,5 +303,10 @@ def check_mock(data: Results, db: Session = Depends(get_db)):
         results["part5Mini"] + 
         results["part5MC"]
     )
+    userInfo = User.filter(User.id == user.id).first()
+    submission = Submissions(username = userInfo.username, section = 'CEFR Reading',score=results["total"])
+    db.add(submission)
+    db.commit()
+    db.refresh(submission)
     
     return results
