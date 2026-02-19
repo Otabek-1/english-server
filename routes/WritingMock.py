@@ -54,6 +54,8 @@ def submit_mock(data: MockResponse,db:Session = Depends(get_db), user = Depends(
     db.add(result)
     db.commit()
     db.refresh(result)
+    userInfo = User.filter(User.id == user.id).first()
+    submission = Submissions(username = userInfo.username, section = 'CEFR Writing')
     return {"message":"Accepted successfully."}
 
 @router.get("/results")
