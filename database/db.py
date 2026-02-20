@@ -200,7 +200,6 @@ class Permissions(Base):
     
     permissions = Column(JSON(String))
 
-<<<<<<< HEAD
 class Feedback(Base):
     __tablename__='feedbacks'
     id = Column(Integer, primary_key=True)
@@ -209,7 +208,6 @@ class Feedback(Base):
     text = Column(String)
 
 Base.metadata.create_all(bind=engine)
-=======
 class Submissions(Base):
     __tablename__="submissions"
     id = Column(Integer, primary_key=True)
@@ -217,7 +215,6 @@ class Submissions(Base):
     section = Column(String)
 
 # Base.metadata.create_all(bind=engine)
->>>>>>> 2c0215267fb74ef8c811a22a8b494033d9ad612b
 
 
 def get_db():
