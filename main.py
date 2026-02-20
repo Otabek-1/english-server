@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from sqlalchemy.orm import Session
+from sqlalchemy import desc
 from auth.router import router as auth_router
 from auth.auth import get_current_user
 from routes.user import router as user_router
@@ -144,4 +145,32 @@ def get_my_feedback_status(
             }
             for item in feedbacks
         ],
+    }
+
+@app.get('/feedback/public')
+def get_public_feedbacks(
+    limit: int = 12,
+    db: Session = Depends(get_db),
+):
+    safe_limit = max(1, min(limit, 30))
+    rows = (
+        db.query(FeedbackModel, User)
+        .join(User, User.id == FeedbackModel.user_id)
+        .filter(FeedbackModel.text.isnot(None))
+        .filter(FeedbackModel.text != "")
+        .order_by(desc(FeedbackModel.id))
+        .limit(safe_limit)
+        .all()
+    )
+
+    return {
+        "feedbacks": [
+            {
+                "id": feedback.id,
+                "username": user.username or "User",
+                "rating": feedback.rating,
+                "text": feedback.text,
+            }
+            for feedback, user in rows
+        ]
     }
