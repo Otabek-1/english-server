@@ -1,8 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+from sqlalchemy.orm import Session
 from auth.router import router as auth_router
+from auth.auth import get_current_user
 from routes.user import router as user_router
 from routes.ReadingMockQuestion import router as reading_routes
 from routes.WritingMock import router as writing_router
@@ -18,6 +20,7 @@ from services.email_service import send_email
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 from dotenv import load_dotenv
+from database.db import Feedback as FeedbackModel, get_db, User
 import os
 
 
@@ -87,3 +90,31 @@ class keyData(BaseModel):
 def get_key(data:keyData):
     if data.password == 'mocksTream10010512111111497':
         return {'key': os.getenv("GEMINI_API_KEY")}
+
+class FeedbackCreate(BaseModel):
+    text:str
+    rating:int
+
+@app.post('/feedback')
+def create_feedback(
+    data: FeedbackCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if data.rating < 1 or data.rating > 5:
+        raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
+
+    feedback = FeedbackModel(
+        user_id=current_user.id,
+        rating=data.rating,
+        text=data.text,
+    )
+    db.add(feedback)
+    db.commit()
+    db.refresh(feedback)
+
+    return {
+        "success": True,
+        "feedback_id": feedback.id,
+        "user_id": feedback.user_id,
+    }

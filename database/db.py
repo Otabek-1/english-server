@@ -200,7 +200,14 @@ class Permissions(Base):
     
     permissions = Column(JSON(String))
 
-# Base.metadata.create_all(bind=engine)
+class Feedback(Base):
+    __tablename__='feedbacks'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id",ondelete="CASCADE"))
+    rating = Column(Integer)
+    text = Column(String)
+
+Base.metadata.create_all(bind=engine)
 
 
 def get_db():
