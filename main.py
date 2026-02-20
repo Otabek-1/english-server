@@ -20,7 +20,7 @@ from services.email_service import send_email
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 from dotenv import load_dotenv
-from database.db import Feedback as FeedbackModel, get_db, User
+from database.db import Feedback as FeedbackModel, SpeakingResult, WritingResult, get_db, User
 import os
 
 
@@ -117,4 +117,31 @@ def create_feedback(
         "success": True,
         "feedback_id": feedback.id,
         "user_id": feedback.user_id,
+    }
+
+@app.get('/feedback/me')
+def get_my_feedback_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    feedbacks = (
+        db.query(FeedbackModel)
+        .filter(FeedbackModel.user_id == current_user.id)
+        .order_by(FeedbackModel.id.desc())
+        .all()
+    )
+    writing_count = db.query(WritingResult).filter(WritingResult.user_id == current_user.id).count()
+    speaking_count = db.query(SpeakingResult).filter(SpeakingResult.user_id == current_user.id).count()
+
+    return {
+        "has_feedback": len(feedbacks) > 0,
+        "mock_submissions_count": writing_count + speaking_count,
+        "feedbacks": [
+            {
+                "id": item.id,
+                "rating": item.rating,
+                "text": item.text,
+            }
+            for item in feedbacks
+        ],
     }
