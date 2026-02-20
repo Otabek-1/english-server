@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from database.db import get_db, User, ReadingMockAnswer, ReadingMockQuestion
+from database.db import get_db, User, ReadingMockAnswer, ReadingMockQuestion, Submissions
 from auth.auth import verify_role
 from schemas.ReadingMockQuestionSchema import CreateReadingMock, CreateReadingAnswers, UpdateReadingAnswers, Results
 
@@ -303,5 +303,10 @@ def check_mock(data: Results, db: Session = Depends(get_db)):
         results["part5Mini"] + 
         results["part5MC"]
     )
+    userInfo = User.filter(User.id == user.id).first()
+    submission = Submissions(username = userInfo.username, section = 'CEFR Reading',score=results["total"])
+    db.add(submission)
+    db.commit()
+    db.refresh(submission)
     
     return results
