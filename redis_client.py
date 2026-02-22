@@ -1,9 +1,10 @@
+import os
 import redis
 
 redis_client = redis.Redis(
-    host='redis-12014.c10.us-east-1-4.ec2.cloud.redislabs.com',
-    port=12014,
+    host=os.getenv("REDIS_HOST", "localhost"),
+    port=int(os.getenv("REDIS_PORT", "6379")),
     decode_responses=True,
-    username="default",
-    password="uivvsXBF64qgDagCC9j4EErUFE74CAsq",
+    username=os.getenv("REDIS_USERNAME", "default"),
+    password=os.getenv("REDIS_PASSWORD", ""),
 )

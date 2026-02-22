@@ -17,15 +17,17 @@ def get_users(db: Session = Depends(get_db), user = Depends(verify_role(['admin'
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error in getting all users.")
 
 @router.get("/me")
-def get_me(db:Session = Depends(get_db), payload: dict = Depends(get_current_user)):
+def get_me(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     try:
-        user = db.query(User).filter(User.id == payload.id).first()
+        user = db.query(User).filter(User.id == current_user.id).first()
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
         return user
+    except HTTPException:
+        raise
     except Exception as e:
         print(e)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Error in getting user info.')
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error in getting user info.")
 
 @router.post("/promote")
 def promote_user(data:promoteData,db:Session = Depends(get_db), user = Depends(verify_role(['admin']))):
@@ -56,24 +58,26 @@ def demote_user(data:promoteData, db: Session = Depends(get_db), user = Depends(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error in demoting user.")
 
 @router.put("/update")
-def update_user(data:udpateUser, payload: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def update_user(data: udpateUser, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
-        user = db.query(User).filter(User.id == payload.id).first()
+        user = db.query(User).filter(User.id == current_user.id).first()
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
         user.username = data.username
         user.email = data.email
         db.commit()
         db.refresh(user)
-        return {"message":"User updated."}
+        return {"message": "User updated."}
+    except HTTPException:
+        raise
     except Exception as e:
         print(e)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error in updating user data.")
 
 @router.post("/password")
-def change_password(data:passwordChange, db: Session = Depends(get_db), payload = Depends(get_current_user)):
+def change_password(data: passwordChange, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     try:
-        user = db.query(User).filter(User.id == payload.id).first()
+        user = db.query(User).filter(User.id == current_user.id).first()
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
         if not verify_password(data.old_password, user.password):
@@ -81,7 +85,9 @@ def change_password(data:passwordChange, db: Session = Depends(get_db), payload 
         user.password = hash_password(data.new_password)
         db.commit()
         db.refresh(user)
-        return {"message":"Password updated successfully."}
+        return {"message": "Password updated successfully."}
+    except HTTPException:
+        raise
     except Exception as e:
         print(e)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error in changing password.")

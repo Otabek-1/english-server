@@ -14,6 +14,8 @@ def get_all_mocks(db:Session = Depends(get_db), user = Depends(get_current_user)
 @router.get("/{id}")
 def get_listening(id:int,db: Session = Depends(get_db), user = Depends(get_current_user)):
     res = db.query(ListeningMock).filter(ListeningMock.id == id).first()
+    if not res:
+        raise HTTPException(status_code=404, detail="Listening mock not found")
     return res
 
 @router.post("/create")
@@ -27,6 +29,8 @@ def add_mock(data:ListeningMockSchema,db: Session = Depends(get_db), user = Depe
 @router.put("/update/{id}")
 def update_mock(id:int,data: ListeningMockSchema, db: Session = Depends(get_db), user = Depends(verify_role(["admin"]))):
     res = db.query(ListeningMock).filter(ListeningMock.id == id).first()
+    if not res:
+        raise HTTPException(status_code=404, detail="Listening mock not found")
     res.title = data.title
     res.data = data.data
     res.audio_part_1 = data.audio_part_1
@@ -63,12 +67,22 @@ def delete_mock(
 
 # ANSWER CRUD
 @router.get("/answer/{mock_id}")
-def get_by_mock_id(mock_id:int, db: Session = Depends(get_db)):
+def get_by_mock_id(mock_id:int, db: Session = Depends(get_db), user = Depends(get_current_user)):
     res=  db.query(ListeningMockAnswer).filter(ListeningMockAnswer.mock_id == mock_id).first()
+    if not res:
+        raise HTTPException(status_code=404, detail="Listening answers not found")
     return res
 
 @router.post("/answer/create/{mock_id}")
 def add_answer(mock_id:int, data:ListeningMockAnswersSchema ,db: Session = Depends(get_db), user=Depends(verify_role(["admin"]))):
+    mock = db.query(ListeningMock).filter(ListeningMock.id == mock_id).first()
+    if not mock:
+        raise HTTPException(status_code=404, detail="Listening mock not found")
+
+    existing = db.query(ListeningMockAnswer).filter(ListeningMockAnswer.mock_id == mock_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Answers already exist for this mock")
+
     new = ListeningMockAnswer(mock_id=mock_id, part_1=data.part_1,part_2=data.part_2,part_3=data.part_3,part_4=data.part_4,part_5=data.part_5,part_6=data.part_6)
     db.add(new)
     db.commit()
@@ -78,6 +92,22 @@ def add_answer(mock_id:int, data:ListeningMockAnswersSchema ,db: Session = Depen
 @router.put("/answer/update/{mock_id}")
 def update_answers(mock_id:int, data: ListeningMockAnswersSchema, db: Session = Depends(get_db), user=Depends(verify_role(['admin']))):
     res = db.query(ListeningMockAnswer).filter(ListeningMockAnswer.mock_id == mock_id).first()
+    if not res:
+        # Upsert behavior: editing old mocks without answer row should not crash
+        res = ListeningMockAnswer(
+            mock_id=mock_id,
+            part_1=data.part_1,
+            part_2=data.part_2,
+            part_3=data.part_3,
+            part_4=data.part_4,
+            part_5=data.part_5,
+            part_6=data.part_6,
+        )
+        db.add(res)
+        db.commit()
+        db.refresh(res)
+        return {"message":"Success"}
+
     res.part_1 = data.part_1
     res.part_2 = data.part_2
     res.part_3 = data.part_3

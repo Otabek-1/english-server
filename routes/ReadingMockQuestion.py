@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from database.db import get_db, User, ReadingMockAnswer, ReadingMockQuestion, Submissions
-from auth.auth import verify_role
+from database.db import get_db, ReadingMockAnswer, ReadingMockQuestion
+from auth.auth import verify_role, get_current_user
 from schemas.ReadingMockQuestionSchema import CreateReadingMock, CreateReadingAnswers, UpdateReadingAnswers, Results
 
 router = APIRouter(prefix="/mock/reading")
@@ -113,6 +113,10 @@ def add_answers(
     db: Session = Depends(get_db),
     user = Depends(verify_role(["admin"]))
 ):
+    existing = db.query(ReadingMockAnswer).filter(ReadingMockAnswer.question_id == data.question_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Answers already exist for this question.")
+
     new_answer = ReadingMockAnswer(
         part1=data.part1,
         part2=data.part2,
@@ -164,7 +168,11 @@ def delete_answers(
     return {"message": "Answer deleted successfully."}
 
 @router.post("/submit")
-def check_mock(data: Results, db: Session = Depends(get_db)):
+def check_mock(
+    data: Results,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     """
     Check user answers against correct answers
     
@@ -209,13 +217,31 @@ def check_mock(data: Results, db: Session = Depends(get_db)):
         "total": 0
     }
     
+    def normalize(value):
+        if value is None:
+            return ""
+        return str(value).strip()
+
+    answer_part1 = answer_obj.part1 or []
+    answer_part2 = answer_obj.part2 or []
+    answer_part3 = answer_obj.part3 or []
+    answer_part4 = answer_obj.part4 or []
+    answer_part5 = answer_obj.part5 or []
+
+    # Legacy DB format:
+    # part4 = [4x MC, 5x TF] and part5 = [5x Mini, 2x MC]
+    correct_part4_mc = answer_part4[:4]
+    correct_part4_tf = answer_part4[4:9]
+    correct_part5_mini = answer_part5[:5]
+    correct_part5_mc = answer_part5[5:7]
+
     # ============ PART 1 TEKSHIRISH ============
     # 6 ta bo'shliq - so'z yoki raqam
     try:
         for i, user_ans in enumerate(data.part1):
-            if i < len(answer_obj.part1):
-                correct_ans = answer_obj.part1[i].strip().lower()
-                user_answer = user_ans.strip().lower()
+            if i < len(answer_part1):
+                correct_ans = normalize(answer_part1[i]).lower()
+                user_answer = normalize(user_ans).lower()
                 if correct_ans == user_answer:
                     results["part1"] += 1
     except Exception as e:
@@ -225,9 +251,9 @@ def check_mock(data: Results, db: Session = Depends(get_db)):
     # 10 ta matching - raqam yoki harf (1-7 orasida)
     try:
         for i, user_ans in enumerate(data.part2):
-            if i < len(answer_obj.part2):
-                correct_ans = answer_obj.part2[i].strip().lower()
-                user_answer = user_ans.strip().lower()
+            if i < len(answer_part2):
+                correct_ans = normalize(answer_part2[i]).lower()
+                user_answer = normalize(user_ans).lower()
                 if correct_ans == user_answer:
                     results["part2"] += 1
     except Exception as e:
@@ -237,9 +263,9 @@ def check_mock(data: Results, db: Session = Depends(get_db)):
     # 6 ta paragraf - sarlavha raqami (1-8 orasida)
     try:
         for i, user_ans in enumerate(data.part3):
-            if i < len(answer_obj.part3):
-                correct_ans = answer_obj.part3[i].strip().lower()
-                user_answer = user_ans.strip().lower()
+            if i < len(answer_part3):
+                correct_ans = normalize(answer_part3[i]).lower()
+                user_answer = normalize(user_ans).lower()
                 if correct_ans == user_answer:
                     results["part3"] += 1
     except Exception as e:
@@ -249,9 +275,9 @@ def check_mock(data: Results, db: Session = Depends(get_db)):
     # 4 ta test savol - A/B/C/D
     try:
         for i, user_ans in enumerate(data.part4MC):
-            if i < len(answer_obj.part4MC):
-                correct_ans = answer_obj.part4MC[i].strip().upper()
-                user_answer = user_ans.strip().upper()
+            if i < len(correct_part4_mc):
+                correct_ans = normalize(correct_part4_mc[i]).upper()
+                user_answer = normalize(user_ans).upper()
                 if correct_ans == user_answer:
                     results["part4MC"] += 1
     except Exception as e:
@@ -261,9 +287,9 @@ def check_mock(data: Results, db: Session = Depends(get_db)):
     # 5 ta statement - True/False/Not Given
     try:
         for i, user_ans in enumerate(data.part4TF):
-            if i < len(answer_obj.part4TF):
-                correct_ans = answer_obj.part4TF[i].strip().lower()
-                user_answer = user_ans.strip().lower()
+            if i < len(correct_part4_tf):
+                correct_ans = normalize(correct_part4_tf[i]).lower()
+                user_answer = normalize(user_ans).lower()
                 if correct_ans == user_answer:
                     results["part4TF"] += 1
     except Exception as e:
@@ -273,9 +299,9 @@ def check_mock(data: Results, db: Session = Depends(get_db)):
     # 5 ta bo'shliq - so'z yoki raqam
     try:
         for i, user_ans in enumerate(data.part5Mini):
-            if i < len(answer_obj.part5Mini):
-                correct_ans = answer_obj.part5Mini[i].strip().lower()
-                user_answer = user_ans.strip().lower()
+            if i < len(correct_part5_mini):
+                correct_ans = normalize(correct_part5_mini[i]).lower()
+                user_answer = normalize(user_ans).lower()
                 if correct_ans == user_answer:
                     results["part5Mini"] += 1
     except Exception as e:
@@ -285,9 +311,9 @@ def check_mock(data: Results, db: Session = Depends(get_db)):
     # 2 ta test savol - A/B/C/D
     try:
         for i, user_ans in enumerate(data.part5MC):
-            if i < len(answer_obj.part5MC):
-                correct_ans = answer_obj.part5MC[i].strip().upper()
-                user_answer = user_ans.strip().upper()
+            if i < len(correct_part5_mc):
+                correct_ans = normalize(correct_part5_mc[i]).upper()
+                user_answer = normalize(user_ans).upper()
                 if correct_ans == user_answer:
                     results["part5MC"] += 1
     except Exception as e:
@@ -303,10 +329,4 @@ def check_mock(data: Results, db: Session = Depends(get_db)):
         results["part5Mini"] + 
         results["part5MC"]
     )
-    userInfo = User.filter(User.id == user.id).first()
-    submission = Submissions(username = userInfo.username, section = 'CEFR Reading',score=results["total"])
-    db.add(submission)
-    db.commit()
-    db.refresh(submission)
-    
     return results

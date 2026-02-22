@@ -5,9 +5,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def send_email(to_email: str, subject: str, message: str):
-    api_key = "a465a0473f0751ef239d896315ccb0a4"
-    api_secret = "5873ed096370a6089c4829ee5399f63c"
-    sender_email = "burhonovotabek5@gmail.com"
+    api_key = os.getenv("MAILJET_API_KEY")
+    api_secret = os.getenv("MAILJET_API_SECRET")
+    sender_email = os.getenv("MAILJET_SENDER_EMAIL")
 
     if not api_key or not api_secret or not sender_email:
         print("❌ MAILJET API KEY yoki SECRET yoki SENDER_EMAIL yo'q!")

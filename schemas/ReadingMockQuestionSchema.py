@@ -1,4 +1,7 @@
 from pydantic import BaseModel
+from typing import List, Union
+
+AnswerValue = Union[str, int, None]
 
 class CreateReadingMock(BaseModel):
     title: str
@@ -25,10 +28,10 @@ class UpdateReadingAnswers(BaseModel):
 
 class Results(BaseModel):
     question_id: int
-    part1: list
-    part2: list
-    part3: list
-    part4MC: list
-    part4TF: list
-    part5Mini: list
-    part5MC: list
+    part1: List[AnswerValue]
+    part2: List[AnswerValue]
+    part3: List[AnswerValue]
+    part4MC: List[AnswerValue]
+    part4TF: List[AnswerValue]
+    part5Mini: List[AnswerValue]
+    part5MC: List[AnswerValue]
