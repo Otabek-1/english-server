@@ -16,7 +16,6 @@ from routes.tts_router import router as tts_router
 from routes.listening_router import router as listening_router
 from routes.permissions_router import router as perm_router
 from routes.session_router import router as session_router
-from rate_limit import global_rate_limiter
 from services.email_service import send_email
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
@@ -28,18 +27,23 @@ import os
 app = FastAPI(title="Server")
 load_dotenv()
 
+_session_secret = os.getenv("SESSION_SECRET_KEY")
+if not _session_secret:
+    raise ValueError(
+        "SESSION_SECRET_KEY must be set in environment (e.g. a long random string)"
+    )
 app.add_middleware(
     SessionMiddleware,
-    secret_key="allakakachiffejsfljgkldngkjgnksrjkngrjk32"
+    secret_key=_session_secret,
 )
 
-# app.middleware("http")(global_rate_limiter)
+# CORS ochiq — public route'lar (gTTS va b.) boshqa loyihalardan ham ishlatiladi
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 
 # ===== ROUTERS =====
@@ -81,16 +85,24 @@ def contact(data:mailModel):
     Message: {data.message}
     """
     
-    send_email(to_email="davirbekkhasanov02@gmail.com", subject=f"Message from {data.full_name}",message=msg)
-    return {"success":True}
+    contact_email = os.getenv("CONTACT_EMAIL", "davirbekkhasanov02@gmail.com")
+    send_email(to_email=contact_email, subject=f"Message from {data.full_name}", message=msg)
+    return {"success": True}
+
 
 class keyData(BaseModel):
-    password:str
+    password: str
 
-@app.post('/key')
-def get_key(data:keyData):
-    if data.password == 'mocksTream10010512111111497':
-        return {'key': os.getenv("GEMINI_API_KEY")}
+
+@app.post("/key")
+def get_key(data: keyData):
+    key_password = os.getenv("KEY_PASSWORD")
+    if not key_password or data.password != key_password:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_key:
+        raise HTTPException(status_code=503, detail="Gemini API key not configured")
+    return {"key": gemini_key}
 
 class FeedbackCreate(BaseModel):
     text:str
