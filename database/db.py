@@ -26,6 +26,7 @@ class User(Base):
 
     notifications = relationship("Notification", back_populates="user")
     speaking_results = relationship("SpeakingResult", back_populates="user")
+    ielts_submissions = relationship("IeltsSubmission", back_populates="user")
 
 
 
@@ -207,14 +208,77 @@ class Feedback(Base):
     rating = Column(Integer)
     text = Column(String)
 
-Base.metadata.create_all(bind=engine)
 class Submissions(Base):
     __tablename__="submissions"
     id = Column(Integer, primary_key=True)
     username = Column(String)
     section = Column(String)
 
-# Base.metadata.create_all(bind=engine)
+class IeltsTest(Base):
+    __tablename__ = "ielts_tests"
+
+    id = Column(Integer, primary_key=True)
+    title = Column(String(160), nullable=False)
+    description = Column(String, nullable=True)
+    exam_track = Column(String(20), nullable=False, default="academic")  # academic/general
+    level = Column(String(20), nullable=True, default="Band 5-7")
+    duration_minutes = Column(Integer, nullable=False, default=165)
+    is_published = Column(Boolean, nullable=False, default=False)
+    tags = Column(JSON, nullable=False, default=list)
+    meta = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    sections = relationship(
+        "IeltsSection",
+        back_populates="test",
+        cascade="all, delete-orphan",
+        order_by="IeltsSection.id",
+    )
+    submissions = relationship(
+        "IeltsSubmission",
+        back_populates="test",
+        cascade="all, delete-orphan",
+        order_by="IeltsSubmission.id.desc()",
+    )
+
+
+class IeltsSection(Base):
+    __tablename__ = "ielts_sections"
+
+    id = Column(Integer, primary_key=True)
+    test_id = Column(Integer, ForeignKey("ielts_tests.id", ondelete="CASCADE"), nullable=False)
+    module = Column(String(20), nullable=False)  # reading/listening/writing/speaking
+    title = Column(String(160), nullable=False)
+    instructions = Column(String, nullable=True)
+    duration_minutes = Column(Integer, nullable=False, default=30)
+    content = Column(JSON, nullable=False, default=dict)
+    answer_key = Column(JSON, nullable=False, default=list)
+    order_index = Column(Integer, nullable=False, default=1)
+
+    test = relationship("IeltsTest", back_populates="sections")
+
+
+class IeltsSubmission(Base):
+    __tablename__ = "ielts_submissions"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    test_id = Column(Integer, ForeignKey("ielts_tests.id", ondelete="CASCADE"), nullable=False)
+    module = Column(String(20), nullable=False)
+    answers = Column(JSON, nullable=False, default=list)
+    score = Column(Integer, nullable=True)
+    max_score = Column(Integer, nullable=True)
+    band = Column(String(10), nullable=True)
+    feedback = Column(JSON, nullable=False, default=dict)
+    time_spent_seconds = Column(Integer, nullable=True, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="ielts_submissions")
+    test = relationship("IeltsTest", back_populates="submissions")
+
+
+Base.metadata.create_all(bind=engine)
 
 
 def get_db():
