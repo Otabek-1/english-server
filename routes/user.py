@@ -4,8 +4,11 @@ from sqlalchemy.orm import Session
 from auth.auth import verify_role, get_current_user, verify_password, hash_password
 from schemas.userSchema import promoteData, udpateUser, passwordChange, premium
 from datetime import datetime, timedelta
+from sqlalchemy import or_
 
 router = APIRouter(prefix="/user")
+
+RAMADAN_PREMIUM_UNTIL = datetime(datetime.utcnow().year, 5, 1, 23, 59, 59)
 
 @router.get("/users")
 def get_users(db: Session = Depends(get_db), user = Depends(verify_role(['admin']))):
@@ -114,4 +117,31 @@ def func(data:premium, user = Depends(verify_role(['admin'])), db: Session = Dep
     except Exception as e:
         print(e)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error in premium function.")
+
+@router.post("/premium/ramadan-grant")
+def grant_ramadan_premium_for_all(user = Depends(verify_role(['admin'])), db: Session = Depends(get_db)):
+    try:
+        updated_count = (
+            db.query(User)
+            .filter(
+                or_(
+                    User.premium_duration.is_(None),
+                    User.premium_duration < RAMADAN_PREMIUM_UNTIL
+                )
+            )
+            .update({User.premium_duration: RAMADAN_PREMIUM_UNTIL}, synchronize_session=False)
+        )
+        db.commit()
+        return {
+            "message": "Ramadan premium granted.",
+            "premium_until": RAMADAN_PREMIUM_UNTIL,
+            "updated_users": updated_count
+        }
+    except Exception as e:
+        db.rollback()
+        print(e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error in ramadan premium bulk grant."
+        )
 

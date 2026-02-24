@@ -5,7 +5,7 @@ from .schema import RegisterUser, LoginUser, TokenRefreshSchema
 from database.db import get_db, User, Notification
 from database.session_model import Session as SessionDB
 from services.session_service import SessionService
-from datetime import datetime, timedelta
+from datetime import datetime
 from fastapi import Request
 from starlette.responses import RedirectResponse
 from authlib.integrations.starlette_client import OAuth
@@ -19,6 +19,8 @@ from user_agents import parse as parse_user_agent
 router = APIRouter(prefix="/auth")
 
 oauth = OAuth()
+
+RAMADAN_PREMIUM_UNTIL = datetime(datetime.utcnow().year, 5, 1, 23, 59, 59)
 
 # ===== HELPER FUNCTIONS =====
 def get_client_ip(request: Request) -> str:
@@ -147,7 +149,8 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
             username=username,
             email=email,
             password=None,
-            google_avatar=avatar
+            google_avatar=avatar,
+            premium_duration=RAMADAN_PREMIUM_UNTIL
         )
         db.add(user)
         db.commit()
@@ -171,8 +174,12 @@ def register_user(data: RegisterUser, request: Request, db: Session = Depends(ge
     if email_exists:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already exists.")
     try:
-        now = datetime.utcnow() + timedelta(days=5)
-        new_user = User(username=data.username, email=data.email, password=hash_password(data.password),premium_duration=now)
+        new_user = User(
+            username=data.username,
+            email=data.email,
+            password=hash_password(data.password),
+            premium_duration=RAMADAN_PREMIUM_UNTIL
+        )
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
