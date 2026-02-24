@@ -33,6 +33,7 @@ oauth = OAuth()
 RAMADAN_PREMIUM_UNTIL = datetime(datetime.utcnow().year, 5, 1, 23, 59, 59)
 PASSWORD_RESET_CODE_EXPIRE_MINUTES = int(os.getenv("PASSWORD_RESET_CODE_EXPIRE_MINUTES", "15"))
 PASSWORD_RESET_MAX_ATTEMPTS = int(os.getenv("PASSWORD_RESET_MAX_ATTEMPTS", "5"))
+MOBILE_REDIRECT_ALLOWED_PREFIX = os.getenv("MOBILE_REDIRECT_ALLOWED_PREFIX", "mockstreammobile://")
 
 # ===== HELPER FUNCTIONS =====
 def get_client_ip(request: Request) -> str:
@@ -153,6 +154,12 @@ def generate_unique_username(name: str, db: Session) -> str:
 
 @router.get("/google/login")
 async def google_login(request: Request):
+    mobile_redirect = request.query_params.get("mobile_redirect")
+    if mobile_redirect:
+        if not mobile_redirect.startswith(MOBILE_REDIRECT_ALLOWED_PREFIX):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid mobile redirect URI.")
+        request.session["mobile_redirect"] = mobile_redirect
+
     redirect_uri = request.url_for("google_callback")
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
@@ -190,8 +197,10 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     access = create_access_token(payload)
     refresh = create_refresh_token(payload)
 
+    redirect_base = request.session.pop("mobile_redirect", None) or f"{os.getenv('FRONTEND_URL')}/auth"
+    separator = "&" if "?" in redirect_base else "?"
     return RedirectResponse(
-        f"{os.getenv('FRONTEND_URL')}/auth?access={access}&refresh={refresh}&session_id={session.id}"
+        f"{redirect_base}{separator}access={access}&refresh={refresh}&session_id={session.id}"
     )
 
 @router.post("/register")
