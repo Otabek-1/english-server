@@ -27,6 +27,21 @@ class User(Base):
     notifications = relationship("Notification", back_populates="user")
     speaking_results = relationship("SpeakingResult", back_populates="user")
     ielts_submissions = relationship("IeltsSubmission", back_populates="user")
+    password_reset_codes = relationship("PasswordResetCode", back_populates="user")
+
+
+class PasswordResetCode(Base):
+    __tablename__ = "password_reset_codes"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    code_hash = Column(String(128), nullable=False)
+    attempts = Column(Integer, nullable=False, default=0)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True, default=None)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="password_reset_codes")
 
 
 

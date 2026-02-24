@@ -1,17 +1,27 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from .auth import hash_password, create_access_token, create_refresh_token, verify_password, verify_access_token, verify_refresh_token
-from .schema import RegisterUser, LoginUser, TokenRefreshSchema
-from database.db import get_db, User, Notification
+from .schema import (
+    RegisterUser,
+    LoginUser,
+    TokenRefreshSchema,
+    ForgotPasswordRequest,
+    VerifyResetCodeRequest,
+    ResetPasswordRequest,
+)
+from database.db import get_db, User, Notification, PasswordResetCode
 from database.session_model import Session as SessionDB
 from services.session_service import SessionService
-from datetime import datetime
+from services.email_service import send_password_reset_code_email
+from datetime import datetime, timedelta
 from fastapi import Request
 from starlette.responses import RedirectResponse
 from authlib.integrations.starlette_client import OAuth
 import os
 import re
 import random
+import secrets
 import hashlib
 from user_agents import parse as parse_user_agent
 
@@ -21,6 +31,8 @@ router = APIRouter(prefix="/auth")
 oauth = OAuth()
 
 RAMADAN_PREMIUM_UNTIL = datetime(datetime.utcnow().year, 5, 1, 23, 59, 59)
+PASSWORD_RESET_CODE_EXPIRE_MINUTES = int(os.getenv("PASSWORD_RESET_CODE_EXPIRE_MINUTES", "15"))
+PASSWORD_RESET_MAX_ATTEMPTS = int(os.getenv("PASSWORD_RESET_MAX_ATTEMPTS", "5"))
 
 # ===== HELPER FUNCTIONS =====
 def get_client_ip(request: Request) -> str:
@@ -91,6 +103,20 @@ def create_session_for_user(db: Session, user_id: int, request: Request) -> Sess
     )
     
     return session
+
+
+def _normalize_email(email: str) -> str:
+    return email.strip().lower()
+
+
+def _build_password_reset_code_hash(email: str, code: str) -> str:
+    secret = os.getenv("SECRET_KEY", "mockstream-secret")
+    raw = f"{_normalize_email(email)}:{code}:{secret}"
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _generate_password_reset_code() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
 
 oauth = OAuth()
 
@@ -239,3 +265,148 @@ def refresh_token(data:TokenRefreshSchema):
     new_access = create_access_token({"id": payload["id"], "email": payload["email"]})
 
     return {"access_token": new_access, "token_type": "Bearer"}
+
+
+@router.post("/forgot-password/request")
+def request_forgot_password_code(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    generic_message = "If an account exists for this email, a verification code has been sent."
+    email = _normalize_email(data.email)
+    user = db.query(User).filter(func.lower(User.email) == email).first()
+    if not user:
+        return {"message": generic_message}
+
+    now = datetime.utcnow()
+    expires_at = now + timedelta(minutes=PASSWORD_RESET_CODE_EXPIRE_MINUTES)
+    code = _generate_password_reset_code()
+    code_hash = _build_password_reset_code_hash(email=email, code=code)
+
+    try:
+        db.query(PasswordResetCode).filter(
+            PasswordResetCode.user_id == user.id,
+            PasswordResetCode.used_at.is_(None),
+        ).update({PasswordResetCode.used_at: now}, synchronize_session=False)
+
+        db.add(
+            PasswordResetCode(
+                user_id=user.id,
+                code_hash=code_hash,
+                expires_at=expires_at,
+                attempts=0,
+            )
+        )
+
+        email_sent, detail = send_password_reset_code_email(
+            to_email=user.email,
+            username=user.username or "User",
+            code=code,
+            expires_minutes=PASSWORD_RESET_CODE_EXPIRE_MINUTES,
+        )
+        if not email_sent:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Could not send reset code email. {detail}",
+            )
+
+        db.commit()
+        return {"message": generic_message}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        print(e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error in forgot password request.",
+        )
+
+
+@router.post("/forgot-password/verify")
+def verify_forgot_password_code(data: VerifyResetCodeRequest, db: Session = Depends(get_db)):
+    email = _normalize_email(data.email)
+    user = db.query(User).filter(func.lower(User.email) == email).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid code or email.")
+
+    now = datetime.utcnow()
+    reset_row = (
+        db.query(PasswordResetCode)
+        .filter(
+            PasswordResetCode.user_id == user.id,
+            PasswordResetCode.used_at.is_(None),
+        )
+        .order_by(PasswordResetCode.id.desc())
+        .first()
+    )
+
+    if not reset_row or reset_row.expires_at < now:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Code expired. Request a new code.")
+
+    if reset_row.attempts >= PASSWORD_RESET_MAX_ATTEMPTS:
+        reset_row.used_at = now
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Too many attempts. Request a new code.",
+        )
+
+    submitted_hash = _build_password_reset_code_hash(email=email, code=data.code.strip())
+    if submitted_hash != reset_row.code_hash:
+        reset_row.attempts += 1
+        if reset_row.attempts >= PASSWORD_RESET_MAX_ATTEMPTS:
+            reset_row.used_at = now
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid code.")
+
+    return {"message": "Code verified."}
+
+
+@router.post("/forgot-password/reset")
+def reset_forgot_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
+    email = _normalize_email(data.email)
+    user = db.query(User).filter(func.lower(User.email) == email).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid code or email.")
+
+    now = datetime.utcnow()
+    reset_row = (
+        db.query(PasswordResetCode)
+        .filter(
+            PasswordResetCode.user_id == user.id,
+            PasswordResetCode.used_at.is_(None),
+        )
+        .order_by(PasswordResetCode.id.desc())
+        .first()
+    )
+
+    if not reset_row or reset_row.expires_at < now:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Code expired. Request a new code.")
+
+    if reset_row.attempts >= PASSWORD_RESET_MAX_ATTEMPTS:
+        reset_row.used_at = now
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Too many attempts. Request a new code.",
+        )
+
+    submitted_hash = _build_password_reset_code_hash(email=email, code=data.code.strip())
+    if submitted_hash != reset_row.code_hash:
+        reset_row.attempts += 1
+        if reset_row.attempts >= PASSWORD_RESET_MAX_ATTEMPTS:
+            reset_row.used_at = now
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid code.")
+
+    try:
+        user.password = hash_password(data.new_password)
+        reset_row.used_at = now
+        db.commit()
+        return {"message": "Password updated successfully."}
+    except Exception as e:
+        db.rollback()
+        print(e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error in resetting password.",
+        )
