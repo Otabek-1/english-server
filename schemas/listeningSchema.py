@@ -1,4 +1,7 @@
 from pydantic import BaseModel
+from typing import List, Union
+
+AnswerValue = Union[str, int, None]
 
 class ListeningMockSchema(BaseModel):
     title: str
@@ -17,3 +20,13 @@ class ListeningMockAnswersSchema(BaseModel):
     part_4:list
     part_5:list
     part_6:list
+
+
+class ListeningSubmitSchema(BaseModel):
+    mock_id: int
+    part1: List[AnswerValue]
+    part2: List[AnswerValue]
+    part3: List[AnswerValue]
+    part4: List[AnswerValue]
+    part5: List[AnswerValue]
+    part6: List[AnswerValue]

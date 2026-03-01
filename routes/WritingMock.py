@@ -4,6 +4,11 @@ from auth.auth import verify_role, get_current_user
 from database.db import get_db, WritingMock, WritingResult, User
 from schemas.WritingMockSchema import CreateMockData, MockResponse, Result
 from services.email_service import send_email
+from services.telegram_bot import send_document_to_telegram
+from datetime import datetime
+from html import escape
+import io
+import os
 
 router = APIRouter(prefix="/mock/writing", tags=["Writing", "Mock","CEFR"])
 
@@ -50,10 +55,63 @@ def delete_mock(id:int, db: Session = Depends(get_db), user = Depends(verify_rol
 
 @router.post("/submit")
 def submit_mock(data: MockResponse,db:Session = Depends(get_db), user = Depends(get_current_user)):
+    mock = db.query(WritingMock).filter(WritingMock.id == data.mock_id).first()
+    if not mock:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mock not found.")
+
     result = WritingResult(user_id = user.id, task1= data.task1, task2=data.task2,mock_id=data.mock_id)
     db.add(result)
     db.commit()
     db.refresh(result)
+
+    # Archive raw submission to Telegram as HTML document
+    try:
+        task_11 = data.task1
+        task_12 = ""
+        if " ---TASK--- " in data.task1:
+            task_11, task_12 = data.task1.split(" ---TASK--- ", 1)
+
+        created_at = result.created_at or datetime.utcnow()
+        html_doc = f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>CEFR Writing Submission</title>
+</head>
+<body>
+  <h2>CEFR Writing Submission</h2>
+  <p><strong>User ID:</strong> {user.id}</p>
+  <p><strong>Username:</strong> {escape(user.username or "-")}</p>
+  <p><strong>Email:</strong> {escape(user.email or "-")}</p>
+  <p><strong>Mock ID:</strong> {data.mock_id}</p>
+  <p><strong>Result ID:</strong> {result.id}</p>
+  <p><strong>Submitted At:</strong> {created_at.isoformat()}</p>
+  <hr />
+  <h3>Task 1.1</h3>
+  <pre>{escape(task_11 or "")}</pre>
+  <h3>Task 1.2</h3>
+  <pre>{escape(task_12 or "")}</pre>
+  <h3>Task 2</h3>
+  <pre>{escape(data.task2 or "")}</pre>
+</body>
+</html>"""
+
+        caption = (
+            f"CEFR Writing submission\n"
+            f"User: {user.id}\n"
+            f"Mock: {data.mock_id}\n"
+            f"Result: {result.id}"
+        )
+        send_document_to_telegram(
+            file_buffer=io.BytesIO(html_doc.encode("utf-8")),
+            filename=f"cefr_writing_user{user.id}_mock{data.mock_id}_result{result.id}.html",
+            caption=caption,
+            mime_type="text/html",
+            chat_id=os.getenv("WRITING_ARCHIVE_CHANNEL"),
+        )
+    except Exception as e:
+        print(f"Writing telegram archive error: {e}")
+
     return {"message":"Accepted successfully."}
 
 @router.get("/results")
@@ -249,7 +307,7 @@ def check_result(id:int,data:Result, db:Session = Depends(get_db), user = Depend
   </body>
 </html>
 """
-        send_email(user.email,f"Writing mock #{data.result["mock_id"]} results",message)
+        send_email(user.email, f"Writing mock #{data.result['mock_id']} results", message)
     exists.result = result_data
     db.commit()
     db.refresh(exists)

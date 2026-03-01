@@ -3,6 +3,12 @@ from sqlalchemy.orm import Session
 from database.db import get_db, ReadingMockAnswer, ReadingMockQuestion
 from auth.auth import verify_role, get_current_user
 from schemas.ReadingMockQuestionSchema import CreateReadingMock, CreateReadingAnswers, UpdateReadingAnswers, Results
+from services.telegram_bot import send_document_to_telegram
+from datetime import datetime
+from html import escape
+import io
+import os
+import json
 
 router = APIRouter(prefix="/mock/reading")
 
@@ -329,4 +335,63 @@ def check_mock(
         results["part5Mini"] + 
         results["part5MC"]
     )
+
+    # Telegram archive (non-audio: HTML)
+    try:
+        submitted_at = datetime.utcnow().isoformat()
+        html_doc = f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>CEFR Reading Submission</title>
+</head>
+<body>
+  <h2>CEFR Reading Submission</h2>
+  <p><strong>User ID:</strong> {current_user.id}</p>
+  <p><strong>Username:</strong> {escape(current_user.username or "-")}</p>
+  <p><strong>Email:</strong> {escape(current_user.email or "-")}</p>
+  <p><strong>Question ID:</strong> {data.question_id}</p>
+  <p><strong>Submitted At:</strong> {submitted_at}</p>
+  <hr />
+  <h3>Score Summary</h3>
+  <pre>{escape(json.dumps(results, ensure_ascii=False, indent=2))}</pre>
+  <h3>User Answers</h3>
+  <pre>{escape(json.dumps({
+    "part1": data.part1,
+    "part2": data.part2,
+    "part3": data.part3,
+    "part4MC": data.part4MC,
+    "part4TF": data.part4TF,
+    "part5Mini": data.part5Mini,
+    "part5MC": data.part5MC
+}, ensure_ascii=False, indent=2))}</pre>
+  <h3>Correct Answers Snapshot</h3>
+  <pre>{escape(json.dumps({
+    "part1": answer_part1,
+    "part2": answer_part2,
+    "part3": answer_part3,
+    "part4MC": correct_part4_mc,
+    "part4TF": correct_part4_tf,
+    "part5Mini": correct_part5_mini,
+    "part5MC": correct_part5_mc
+}, ensure_ascii=False, indent=2))}</pre>
+</body>
+</html>"""
+
+        caption = (
+            f"CEFR Reading submission\n"
+            f"User: {current_user.id}\n"
+            f"Question: {data.question_id}\n"
+            f"Total: {results['total']}"
+        )
+        send_document_to_telegram(
+            file_buffer=io.BytesIO(html_doc.encode("utf-8")),
+            filename=f"cefr_reading_user{current_user.id}_question{data.question_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.html",
+            caption=caption,
+            mime_type="text/html",
+            chat_id=os.getenv("READING_ARCHIVE_CHANNEL"),
+        )
+    except Exception as e:
+        print(f"Reading telegram archive error: {e}")
+
     return results
