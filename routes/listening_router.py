@@ -8,7 +8,6 @@ from datetime import datetime
 from html import escape
 import io
 import os
-import json
 
 router = APIRouter(prefix="/cefr/listening", tags=["Listening"])
 
@@ -205,35 +204,143 @@ def submit_listening(
 
     # Telegram archive (non-audio: HTML)
     try:
-        submitted_at = datetime.utcnow().isoformat()
+        submitted_label = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+        part_data = mock.data or {}
+        prompts = []
+
+        for idx, options in enumerate(part_data.get("part_1", []) or []):
+            if isinstance(options, list):
+                opts = ", ".join([f"{chr(65 + i)}. {str(opt)}" for i, opt in enumerate(options)])
+                prompts.append(f"Part 1 - Question {idx + 1}: {opts}")
+            else:
+                prompts.append(f"Part 1 - Question {idx + 1}")
+
+        for idx, item in enumerate(part_data.get("part_2", []) or []):
+            if isinstance(item, dict):
+                prompt_text = f"{item.get('label', '').strip()} {item.get('before', '').strip()} ____ {item.get('after', '').strip()}".strip()
+                prompts.append(f"Part 2 - Question {idx + 1}: {prompt_text}")
+            else:
+                prompts.append(f"Part 2 - Question {idx + 1}")
+
+        for idx, speaker in enumerate((part_data.get("part_3", {}) or {}).get("speakers", []) or []):
+            prompts.append(f"Part 3 - Speaker {idx + 1}: {speaker}")
+
+        for idx, q in enumerate((part_data.get("part_4", {}) or {}).get("questions", []) or []):
+            if isinstance(q, dict):
+                prompts.append(f"Part 4 - Map label {idx + 1}: {q.get('place', '')}")
+            else:
+                prompts.append(f"Part 4 - Question {idx + 1}")
+
+        for extract in part_data.get("part_5", []) or []:
+            extract_name = extract.get("name", "Extract") if isinstance(extract, dict) else "Extract"
+            qs = extract.get("questions", []) if isinstance(extract, dict) else []
+            for q in qs:
+                if isinstance(q, dict):
+                    prompts.append(f"Part 5 - {extract_name}: {q.get('text', '')}")
+                else:
+                    prompts.append(f"Part 5 - {extract_name}")
+
+        for idx, q in enumerate((part_data.get("part_6", {}) or {}).get("questions", []) or []):
+            if isinstance(q, dict):
+                prompt_text = q.get("text") or q.get("question") or q.get("before") or f"Question {idx + 1}"
+            else:
+                prompt_text = str(q)
+            prompts.append(f"Part 6 - Question {idx + 1}: {prompt_text}")
+
+        def render_detail_card(detail, prompt, idx):
+            status_class = "ok" if detail.get("is_correct") else "bad"
+            status_text = "Correct" if detail.get("is_correct") else "Incorrect"
+            return f"""
+<div class="qa-card {status_class}">
+  <div class="qa-head">
+    <span class="qno">Q{detail.get('question', idx + 1)}</span>
+    <span class="sec">Part {detail.get('part', '-')}</span>
+    <span class="st">{status_text}</span>
+  </div>
+  <div class="qa-body">
+    <div class="label">Question</div>
+    <p class="prompt">{escape(str(prompt or "-"))}</p>
+    <div class="row"><b>User:</b> {escape(str(detail.get("user_answer", "")))}</div>
+    <div class="row"><b>Correct:</b> {escape(str(detail.get("correct_answer", "")))}</div>
+  </div>
+</div>"""
+
+        cards_html = "\n".join(
+            render_detail_card(detail, prompts[idx] if idx < len(prompts) else f"Question {idx + 1}", idx)
+            for idx, detail in enumerate(details)
+        )
         html_doc = f"""<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
   <title>CEFR Listening Submission</title>
+  <style>
+    :root {{
+      --bg: #f4f7fb; --card:#fff; --ink:#102238; --muted:#5c6b80; --line:#d7e0ec;
+      --primary:#0f766e; --primary2:#0891b2; --ok:#1f9d55; --bad:#cc3344;
+    }}
+    * {{ box-sizing:border-box; }}
+    body {{ margin:0; padding:28px; background:linear-gradient(180deg,#edf7f9,var(--bg)); color:var(--ink); font-family:Segoe UI,Arial,sans-serif; }}
+    .wrap {{ max-width:1100px; margin:0 auto; background:var(--card); border:1px solid var(--line); border-radius:18px; overflow:hidden; box-shadow:0 14px 34px rgba(16,34,56,.12); }}
+    .hero {{ padding:24px 28px; background:linear-gradient(120deg,var(--primary),var(--primary2)); color:#fff; }}
+    .hero h1 {{ margin:0 0 8px; font-size:30px; }}
+    .meta {{ display:grid; grid-template-columns:repeat(3,minmax(180px,1fr)); gap:8px 16px; font-size:14px; }}
+    .summary {{ padding:16px 28px; border-bottom:1px solid var(--line); display:flex; gap:16px; flex-wrap:wrap; }}
+    .chip {{ background:#eef6ff; border:1px solid #cfe0ff; color:#123a78; border-radius:999px; padding:6px 12px; font-size:13px; font-weight:700; }}
+    .body {{ padding:20px 28px 28px; }}
+    .qa-grid {{ display:grid; grid-template-columns:1fr; gap:12px; }}
+    .qa-card {{ border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#fff; }}
+    .qa-card.ok {{ border-left:6px solid var(--ok); }}
+    .qa-card.bad {{ border-left:6px solid var(--bad); }}
+    .qa-head {{ display:flex; gap:8px; align-items:center; padding:10px 12px; background:#f8fbff; border-bottom:1px solid var(--line); }}
+    .qno {{ font-weight:800; color:#0a4f8a; }}
+    .sec {{ font-size:12px; font-weight:700; color:#19436b; background:#e8f1ff; border-radius:999px; padding:4px 8px; }}
+    .st {{ margin-left:auto; font-size:12px; font-weight:700; color:#4a5b70; }}
+    .qa-body {{ padding:12px; }}
+    .label {{ font-size:11px; text-transform:uppercase; color:#375273; font-weight:700; letter-spacing:.04em; margin-bottom:6px; }}
+    .prompt {{ margin:0 0 10px; white-space:pre-wrap; color:#1f3653; }}
+    .row {{ font-size:14px; margin:3px 0; }}
+    @media (max-width:820px) {{ body {{ padding:14px; }} .meta {{ grid-template-columns:1fr 1fr; }} }}
+  </style>
 </head>
 <body>
-  <h2>CEFR Listening Submission</h2>
-  <p><strong>User ID:</strong> {current_user.id}</p>
-  <p><strong>Username:</strong> {escape(current_user.username or "-")}</p>
-  <p><strong>Email:</strong> {escape(current_user.email or "-")}</p>
-  <p><strong>Mock ID:</strong> {data.mock_id}</p>
-  <p><strong>Submitted At:</strong> {submitted_at}</p>
-  <hr />
-  <h3>Score Summary</h3>
-  <pre>{escape(json.dumps(results, ensure_ascii=False, indent=2))}</pre>
-  <h3>User Answers</h3>
-  <pre>{escape(json.dumps(user_parts, ensure_ascii=False, indent=2))}</pre>
-  <h3>Correct Answers Snapshot</h3>
-  <pre>{escape(json.dumps(correct_parts, ensure_ascii=False, indent=2))}</pre>
+  <div class="wrap">
+    <div class="hero">
+      <h1>CEFR Listening Archive</h1>
+      <div class="meta">
+        <div><b>Mock ID:</b> {data.mock_id}</div>
+        <div><b>Submitted:</b> {submitted_label}</div>
+        <div><b>Total:</b> {total}/{max_score}</div>
+        <div><b>User ID:</b> {current_user.id}</div>
+        <div><b>Username:</b> {escape(current_user.username or "-")}</div>
+        <div><b>Email:</b> {escape(current_user.email or "-")}</div>
+      </div>
+    </div>
+    <div class="summary">
+      <span class="chip">Part1: {part_scores["part1"]["correct"]}/{part_scores["part1"]["total"]}</span>
+      <span class="chip">Part2: {part_scores["part2"]["correct"]}/{part_scores["part2"]["total"]}</span>
+      <span class="chip">Part3: {part_scores["part3"]["correct"]}/{part_scores["part3"]["total"]}</span>
+      <span class="chip">Part4: {part_scores["part4"]["correct"]}/{part_scores["part4"]["total"]}</span>
+      <span class="chip">Part5: {part_scores["part5"]["correct"]}/{part_scores["part5"]["total"]}</span>
+      <span class="chip">Part6: {part_scores["part6"]["correct"]}/{part_scores["part6"]["total"]}</span>
+      <span class="chip">Percent: {percentage}%</span>
+    </div>
+    <div class="body">
+      <div class="qa-grid">
+        {cards_html}
+      </div>
+    </div>
+  </div>
 </body>
 </html>"""
 
         caption = (
-            f"CEFR Listening submission\n"
-            f"User: {current_user.id}\n"
-            f"Mock: {data.mock_id}\n"
-            f"Total: {total}/{max_score}"
+            f"🎧 CEFR Listening Archive\n"
+            f"👤 User ID: {current_user.id}\n"
+            f"📘 Mock ID: {data.mock_id}\n"
+            f"📊 Score: {total}/{max_score} ({percentage}%)\n"
+            f"⏰ Submitted: {submitted_label}"
         )
         send_document_to_telegram(
             file_buffer=io.BytesIO(html_doc.encode("utf-8")),

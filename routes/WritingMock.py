@@ -72,35 +72,157 @@ def submit_mock(data: MockResponse,db:Session = Depends(get_db), user = Depends(
             task_11, task_12 = data.task1.split(" ---TASK--- ", 1)
 
         created_at = result.created_at or datetime.utcnow()
+        task11_prompt = ((mock.task1 or {}).get("task11") or "").strip()
+        task12_prompt = ((mock.task1 or {}).get("task12") or "").strip()
+        task2_prompt = ((mock.task2 or {}).get("task2") or "").strip()
+        created_at_label = created_at.strftime("%Y-%m-%d %H:%M:%S UTC")
         html_doc = f"""<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
   <title>CEFR Writing Submission</title>
+  <style>
+    :root {{
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --ink: #102238;
+      --muted: #5c6b80;
+      --line: #d7e0ec;
+      --primary: #0d6efd;
+      --primary-2: #4f46e5;
+      --ok-bg: #e8f7ef;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      padding: 28px;
+      background: linear-gradient(180deg, #eef3fa 0%, var(--bg) 100%);
+      color: var(--ink);
+      font-family: Segoe UI, Arial, sans-serif;
+      line-height: 1.45;
+    }}
+    .wrap {{
+      max-width: 980px;
+      margin: 0 auto;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 14px 34px rgba(16, 34, 56, 0.12);
+    }}
+    .hero {{
+      padding: 24px 28px;
+      background: linear-gradient(120deg, var(--primary), var(--primary-2));
+      color: #fff;
+    }}
+    .hero h1 {{ margin: 0 0 8px; font-size: 30px; }}
+    .meta {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(180px, 1fr));
+      gap: 8px 16px;
+      margin-top: 8px;
+      font-size: 14px;
+    }}
+    .meta b {{ opacity: .85; font-weight: 600; }}
+    .body {{ padding: 24px 28px 28px; }}
+    .task {{
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 16px;
+      background: #fff;
+    }}
+    .task h2 {{ margin: 0 0 10px; font-size: 22px; }}
+    .label {{
+      font-size: 12px;
+      font-weight: 700;
+      color: #0b4db6;
+      background: #e8f0ff;
+      display: inline-block;
+      padding: 5px 9px;
+      border-radius: 999px;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }}
+    .prompt {{
+      margin: 0 0 10px;
+      padding: 11px 12px;
+      border-radius: 10px;
+      border: 1px solid #dbe7ff;
+      background: #f4f8ff;
+      color: #1e3554;
+      white-space: pre-wrap;
+    }}
+    .answer {{
+      margin: 0;
+      padding: 12px;
+      border-radius: 10px;
+      background: #f7fafc;
+      border: 1px solid var(--line);
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 14px;
+    }}
+    .footer {{
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--muted);
+      text-align: right;
+    }}
+    @media (max-width: 820px) {{
+      body {{ padding: 14px; }}
+      .meta {{ grid-template-columns: 1fr 1fr; }}
+    }}
+  </style>
 </head>
 <body>
-  <h2>CEFR Writing Submission</h2>
-  <p><strong>User ID:</strong> {user.id}</p>
-  <p><strong>Username:</strong> {escape(user.username or "-")}</p>
-  <p><strong>Email:</strong> {escape(user.email or "-")}</p>
-  <p><strong>Mock ID:</strong> {data.mock_id}</p>
-  <p><strong>Result ID:</strong> {result.id}</p>
-  <p><strong>Submitted At:</strong> {created_at.isoformat()}</p>
-  <hr />
-  <h3>Task 1.1</h3>
-  <pre>{escape(task_11 or "")}</pre>
-  <h3>Task 1.2</h3>
-  <pre>{escape(task_12 or "")}</pre>
-  <h3>Task 2</h3>
-  <pre>{escape(data.task2 or "")}</pre>
+  <div class="wrap">
+    <div class="hero">
+      <h1>CEFR Writing Archive</h1>
+      <div class="meta">
+        <div><b>Mock ID:</b> {data.mock_id}</div>
+        <div><b>Result ID:</b> {result.id}</div>
+        <div><b>Submitted:</b> {created_at_label}</div>
+        <div><b>User ID:</b> {user.id}</div>
+        <div><b>Username:</b> {escape(user.username or "-")}</div>
+        <div><b>Email:</b> {escape(user.email or "-")}</div>
+      </div>
+    </div>
+    <div class="body">
+      <section class="task">
+        <h2>Task 1.1</h2>
+        <div class="label">Question Prompt</div>
+        <p class="prompt">{escape(task11_prompt or "Task prompt not found")}</p>
+        <div class="label">User Answer</div>
+        <pre class="answer">{escape(task_11 or "")}</pre>
+      </section>
+      <section class="task">
+        <h2>Task 1.2</h2>
+        <div class="label">Question Prompt</div>
+        <p class="prompt">{escape(task12_prompt or "Task prompt not found")}</p>
+        <div class="label">User Answer</div>
+        <pre class="answer">{escape(task_12 or "")}</pre>
+      </section>
+      <section class="task">
+        <h2>Task 2</h2>
+        <div class="label">Question Prompt</div>
+        <p class="prompt">{escape(task2_prompt or "Task prompt not found")}</p>
+        <div class="label">User Answer</div>
+        <pre class="answer">{escape(data.task2 or "")}</pre>
+      </section>
+      <div class="footer">Generated by Mockstream Telegram Archive</div>
+    </div>
+  </div>
 </body>
 </html>"""
 
         caption = (
-            f"CEFR Writing submission\n"
-            f"User: {user.id}\n"
-            f"Mock: {data.mock_id}\n"
-            f"Result: {result.id}"
+            f"📝 CEFR Writing Archive\n"
+            f"👤 User ID: {user.id}\n"
+            f"📘 Mock ID: {data.mock_id}\n"
+            f"🧾 Result ID: {result.id}\n"
+            f"⏰ Submitted: {created_at_label}"
         )
         send_document_to_telegram(
             file_buffer=io.BytesIO(html_doc.encode("utf-8")),

@@ -8,7 +8,6 @@ from datetime import datetime
 from html import escape
 import io
 import os
-import json
 
 router = APIRouter(prefix="/mock/reading")
 
@@ -338,51 +337,199 @@ def check_mock(
 
     # Telegram archive (non-audio: HTML)
     try:
-        submitted_at = datetime.utcnow().isoformat()
+        submitted_label = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        part1_text = (question.part1 or {}).get("text", "")
+        part2_statements = (question.part2 or {}).get("statements", []) or []
+        part3_paragraphs = (question.part3 or {}).get("paragraphs", []) or []
+        part4_mc = (question.part4 or {}).get("multipleChoice", []) or []
+        part4_tf = (question.part4 or {}).get("trueFalse", []) or []
+        part5_mc = (question.part5 or {}).get("multipleChoice", []) or []
+
+        def render_qa_card(q_no, section, prompt, user_answer, correct_answer, is_correct):
+            status_class = "ok" if is_correct else "bad"
+            status_text = "Correct" if is_correct else "Incorrect"
+            return f"""
+<div class="qa-card {status_class}">
+  <div class="qa-head">
+    <span class="qno">Q{q_no}</span>
+    <span class="sec">{escape(section)}</span>
+    <span class="st">{status_text}</span>
+  </div>
+  <div class="qa-body">
+    <div class="label">Question</div>
+    <p class="prompt">{escape(str(prompt or "-"))}</p>
+    <div class="row"><b>User:</b> {escape(str(user_answer if user_answer is not None else ""))}</div>
+    <div class="row"><b>Correct:</b> {escape(str(correct_answer if correct_answer is not None else ""))}</div>
+  </div>
+</div>"""
+
+        cards = []
+        q_no = 1
+
+        for idx, ua in enumerate(data.part1 or []):
+            ca = answer_part1[idx] if idx < len(answer_part1) else ""
+            cards.append(render_qa_card(
+                q_no=q_no,
+                section="Part 1",
+                prompt=f"Gap {idx + 1} from Part 1 text: {part1_text}",
+                user_answer=ua,
+                correct_answer=ca,
+                is_correct=str(ua).strip().lower() == str(ca).strip().lower(),
+            ))
+            q_no += 1
+
+        for idx, ua in enumerate(data.part2 or []):
+            ca = answer_part2[idx] if idx < len(answer_part2) else ""
+            prompt = part2_statements[idx] if idx < len(part2_statements) else f"Part 2 statement {idx + 1}"
+            cards.append(render_qa_card(
+                q_no=q_no,
+                section="Part 2",
+                prompt=prompt,
+                user_answer=ua,
+                correct_answer=ca,
+                is_correct=str(ua).strip().lower() == str(ca).strip().lower(),
+            ))
+            q_no += 1
+
+        for idx, ua in enumerate(data.part3 or []):
+            ca = answer_part3[idx] if idx < len(answer_part3) else ""
+            prompt = part3_paragraphs[idx] if idx < len(part3_paragraphs) else f"Part 3 paragraph {idx + 1}"
+            cards.append(render_qa_card(
+                q_no=q_no,
+                section="Part 3",
+                prompt=prompt,
+                user_answer=ua,
+                correct_answer=ca,
+                is_correct=str(ua).strip().lower() == str(ca).strip().lower(),
+            ))
+            q_no += 1
+
+        for idx, ua in enumerate(data.part4MC or []):
+            ca = correct_part4_mc[idx] if idx < len(correct_part4_mc) else ""
+            mc_q = part4_mc[idx] if idx < len(part4_mc) else {}
+            prompt = mc_q.get("question") if isinstance(mc_q, dict) else f"Part 4 MC question {idx + 1}"
+            cards.append(render_qa_card(
+                q_no=q_no,
+                section="Part 4 MC",
+                prompt=prompt,
+                user_answer=ua,
+                correct_answer=ca,
+                is_correct=str(ua).strip().upper() == str(ca).strip().upper(),
+            ))
+            q_no += 1
+
+        for idx, ua in enumerate(data.part4TF or []):
+            ca = correct_part4_tf[idx] if idx < len(correct_part4_tf) else ""
+            tf_q = part4_tf[idx] if idx < len(part4_tf) else {}
+            prompt = tf_q.get("statement") if isinstance(tf_q, dict) else f"Part 4 TF statement {idx + 1}"
+            cards.append(render_qa_card(
+                q_no=q_no,
+                section="Part 4 TF",
+                prompt=prompt,
+                user_answer=ua,
+                correct_answer=ca,
+                is_correct=str(ua).strip().lower() == str(ca).strip().lower(),
+            ))
+            q_no += 1
+
+        for idx, ua in enumerate(data.part5Mini or []):
+            ca = correct_part5_mini[idx] if idx < len(correct_part5_mini) else ""
+            cards.append(render_qa_card(
+                q_no=q_no,
+                section="Part 5 Mini",
+                prompt=f"Gap {idx + 1} from Part 5 mini text",
+                user_answer=ua,
+                correct_answer=ca,
+                is_correct=str(ua).strip().lower() == str(ca).strip().lower(),
+            ))
+            q_no += 1
+
+        for idx, ua in enumerate(data.part5MC or []):
+            ca = correct_part5_mc[idx] if idx < len(correct_part5_mc) else ""
+            mc_q = part5_mc[idx] if idx < len(part5_mc) else {}
+            prompt = mc_q.get("question") if isinstance(mc_q, dict) else f"Part 5 MC question {idx + 1}"
+            cards.append(render_qa_card(
+                q_no=q_no,
+                section="Part 5 MC",
+                prompt=prompt,
+                user_answer=ua,
+                correct_answer=ca,
+                is_correct=str(ua).strip().upper() == str(ca).strip().upper(),
+            ))
+            q_no += 1
+
+        cards_html = "\n".join(cards)
         html_doc = f"""<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
   <title>CEFR Reading Submission</title>
+  <style>
+    :root {{
+      --bg: #f4f7fb; --card:#fff; --ink:#102238; --muted:#5c6b80; --line:#d7e0ec;
+      --primary:#0f766e; --primary2:#0891b2; --ok:#1f9d55; --bad:#cc3344;
+    }}
+    * {{ box-sizing:border-box; }}
+    body {{ margin:0; padding:28px; background:linear-gradient(180deg,#edf7f9,var(--bg)); color:var(--ink); font-family:Segoe UI,Arial,sans-serif; }}
+    .wrap {{ max-width:1100px; margin:0 auto; background:var(--card); border:1px solid var(--line); border-radius:18px; overflow:hidden; box-shadow:0 14px 34px rgba(16,34,56,.12); }}
+    .hero {{ padding:24px 28px; background:linear-gradient(120deg,var(--primary),var(--primary2)); color:#fff; }}
+    .hero h1 {{ margin:0 0 8px; font-size:30px; }}
+    .meta {{ display:grid; grid-template-columns:repeat(3,minmax(180px,1fr)); gap:8px 16px; font-size:14px; }}
+    .summary {{ padding:16px 28px; border-bottom:1px solid var(--line); display:flex; gap:16px; flex-wrap:wrap; }}
+    .chip {{ background:#eef6ff; border:1px solid #cfe0ff; color:#123a78; border-radius:999px; padding:6px 12px; font-size:13px; font-weight:700; }}
+    .body {{ padding:20px 28px 28px; }}
+    .qa-grid {{ display:grid; grid-template-columns:1fr; gap:12px; }}
+    .qa-card {{ border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#fff; }}
+    .qa-card.ok {{ border-left:6px solid var(--ok); }}
+    .qa-card.bad {{ border-left:6px solid var(--bad); }}
+    .qa-head {{ display:flex; gap:8px; align-items:center; padding:10px 12px; background:#f8fbff; border-bottom:1px solid var(--line); }}
+    .qno {{ font-weight:800; color:#0a4f8a; }}
+    .sec {{ font-size:12px; font-weight:700; color:#19436b; background:#e8f1ff; border-radius:999px; padding:4px 8px; }}
+    .st {{ margin-left:auto; font-size:12px; font-weight:700; color:#4a5b70; }}
+    .qa-body {{ padding:12px; }}
+    .label {{ font-size:11px; text-transform:uppercase; color:#375273; font-weight:700; letter-spacing:.04em; margin-bottom:6px; }}
+    .prompt {{ margin:0 0 10px; white-space:pre-wrap; color:#1f3653; }}
+    .row {{ font-size:14px; margin:3px 0; }}
+    @media (max-width:820px) {{ body {{ padding:14px; }} .meta {{ grid-template-columns:1fr 1fr; }} }}
+  </style>
 </head>
 <body>
-  <h2>CEFR Reading Submission</h2>
-  <p><strong>User ID:</strong> {current_user.id}</p>
-  <p><strong>Username:</strong> {escape(current_user.username or "-")}</p>
-  <p><strong>Email:</strong> {escape(current_user.email or "-")}</p>
-  <p><strong>Question ID:</strong> {data.question_id}</p>
-  <p><strong>Submitted At:</strong> {submitted_at}</p>
-  <hr />
-  <h3>Score Summary</h3>
-  <pre>{escape(json.dumps(results, ensure_ascii=False, indent=2))}</pre>
-  <h3>User Answers</h3>
-  <pre>{escape(json.dumps({
-    "part1": data.part1,
-    "part2": data.part2,
-    "part3": data.part3,
-    "part4MC": data.part4MC,
-    "part4TF": data.part4TF,
-    "part5Mini": data.part5Mini,
-    "part5MC": data.part5MC
-}, ensure_ascii=False, indent=2))}</pre>
-  <h3>Correct Answers Snapshot</h3>
-  <pre>{escape(json.dumps({
-    "part1": answer_part1,
-    "part2": answer_part2,
-    "part3": answer_part3,
-    "part4MC": correct_part4_mc,
-    "part4TF": correct_part4_tf,
-    "part5Mini": correct_part5_mini,
-    "part5MC": correct_part5_mc
-}, ensure_ascii=False, indent=2))}</pre>
+  <div class="wrap">
+    <div class="hero">
+      <h1>CEFR Reading Archive</h1>
+      <div class="meta">
+        <div><b>Mock ID:</b> {data.question_id}</div>
+        <div><b>Submitted:</b> {submitted_label}</div>
+        <div><b>Total:</b> {results["total"]}/38</div>
+        <div><b>User ID:</b> {current_user.id}</div>
+        <div><b>Username:</b> {escape(current_user.username or "-")}</div>
+        <div><b>Email:</b> {escape(current_user.email or "-")}</div>
+      </div>
+    </div>
+    <div class="summary">
+      <span class="chip">Part1: {results["part1"]}/6</span>
+      <span class="chip">Part2: {results["part2"]}/10</span>
+      <span class="chip">Part3: {results["part3"]}/6</span>
+      <span class="chip">Part4 MC: {results["part4MC"]}/4</span>
+      <span class="chip">Part4 TF: {results["part4TF"]}/5</span>
+      <span class="chip">Part5 Mini: {results["part5Mini"]}/5</span>
+      <span class="chip">Part5 MC: {results["part5MC"]}/2</span>
+    </div>
+    <div class="body">
+      <div class="qa-grid">
+        {cards_html}
+      </div>
+    </div>
+  </div>
 </body>
 </html>"""
 
         caption = (
-            f"CEFR Reading submission\n"
-            f"User: {current_user.id}\n"
-            f"Question: {data.question_id}\n"
-            f"Total: {results['total']}"
+            f"📖 CEFR Reading Archive\n"
+            f"👤 User ID: {current_user.id}\n"
+            f"📘 Mock ID: {data.question_id}\n"
+            f"📊 Score: {results['total']}/38\n"
+            f"⏰ Submitted: {submitted_label}"
         )
         send_document_to_telegram(
             file_buffer=io.BytesIO(html_doc.encode("utf-8")),
