@@ -69,6 +69,19 @@ class FullMockAttemptPayload(BaseModel):
     details: Dict[str, Any] = Field(default_factory=dict)
 
 
+class AttemptResolvePayload(BaseModel):
+    exam_type: str = Field(min_length=3, max_length=50)
+    mock_id: Optional[str] = Field(default=None, max_length=80)
+    score: Optional[int] = Field(default=None, ge=0)
+    max_score: Optional[int] = Field(default=None, ge=0)
+    score_percent: Optional[int] = Field(default=None, ge=0, le=100)
+    score_75: Optional[int] = Field(default=None, ge=0, le=75)
+    band: Optional[str] = Field(default=None, max_length=20)
+    title: Optional[str] = Field(default=None, max_length=180)
+    route_path: Optional[str] = Field(default=None, max_length=255)
+    attempt_meta: Dict[str, Any] = Field(default_factory=dict)
+
+
 def clamp(num: Optional[float], low: int, high: int) -> Optional[int]:
     if num is None:
         return None
@@ -195,6 +208,37 @@ def create_attempt_row(db: Session, user_id: int, payload: AttemptPayload) -> Mo
     db.refresh(row)
     if payload.clear_progress:
         complete_progress_rows(db=db, user_id=user_id, exam_type=payload.exam_type, mock_id=payload.mock_id)
+    return row
+
+
+def resolve_latest_attempt_row(db: Session, user_id: int, payload: AttemptResolvePayload) -> MockAttempt:
+    row = (
+        db.query(MockAttempt)
+        .filter(
+            MockAttempt.user_id == user_id,
+            MockAttempt.exam_type == payload.exam_type,
+            MockAttempt.mock_id == payload.mock_id,
+        )
+        .order_by(MockAttempt.id.desc())
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Attempt not found")
+
+    if payload.title is not None:
+        row.title = payload.title
+    if payload.route_path is not None:
+        row.route_path = payload.route_path
+    row.score = payload.score
+    row.max_score = payload.max_score
+    row.score_percent = payload.score_percent
+    row.score_75 = normalize_score_75(payload.score, payload.max_score, payload.score_percent, payload.score_75)
+    row.band = payload.band
+    row.status = "completed"
+    row.attempt_meta = {**(row.attempt_meta or {}), **(payload.attempt_meta or {})}
+    row.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(row)
     return row
 
 
@@ -398,6 +442,16 @@ def create_full_mock_attempt(
     db.commit()
     db.refresh(full_attempt)
     return {"attempt": serialize_attempt(full_attempt)}
+
+
+@router.patch("/attempts/latest")
+def resolve_latest_attempt(
+    payload: AttemptResolvePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    row = resolve_latest_attempt_row(db=db, user_id=current_user.id, payload=payload)
+    return {"attempt": serialize_attempt(row)}
 
 
 @router.get("/home")
