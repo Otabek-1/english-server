@@ -9,6 +9,7 @@ from datetime import datetime
 from html import escape
 import io
 import os
+from routes.dashboard_router import AttemptPayload, create_attempt_row
 
 router = APIRouter(prefix="/mock/writing", tags=["Writing", "Mock","CEFR"])
 
@@ -63,6 +64,21 @@ def submit_mock(data: MockResponse,db:Session = Depends(get_db), user = Depends(
     db.add(result)
     db.commit()
     db.refresh(result)
+
+    create_attempt_row(
+        db=db,
+        user_id=user.id,
+        payload=AttemptPayload(
+            exam_type="cefr_writing",
+            skill_area="writing",
+            mock_id=str(data.mock_id),
+            title=f"CEFR Writing Mock #{data.mock_id}",
+            route_path=f"/mock/cefr/writing/{data.mock_id}",
+            status="pending_review",
+            attempt_meta={"result_id": result.id},
+            clear_progress=True,
+        ),
+    )
 
     # Archive raw submission to Telegram as HTML document
     try:

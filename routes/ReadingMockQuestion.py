@@ -8,6 +8,7 @@ from datetime import datetime
 from html import escape
 import io
 import os
+from routes.dashboard_router import AttemptPayload, create_attempt_row
 
 router = APIRouter(prefix="/mock/reading")
 
@@ -333,6 +334,23 @@ def check_mock(
         results["part4TF"] + 
         results["part5Mini"] + 
         results["part5MC"]
+    )
+
+    create_attempt_row(
+        db=db,
+        user_id=current_user.id,
+        payload=AttemptPayload(
+            exam_type="cefr_reading",
+            skill_area="reading",
+            mock_id=str(data.question_id),
+            title=question.title or f"CEFR Reading Mock #{data.question_id}",
+            route_path=f"/mock/cefr/reading/{data.question_id}",
+            score=results["total"],
+            max_score=38,
+            score_percent=round((results["total"] / 38) * 100),
+            clear_progress=True,
+            attempt_meta=results,
+        ),
     )
 
     # Telegram archive (non-audio: HTML)

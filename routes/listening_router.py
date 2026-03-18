@@ -8,6 +8,7 @@ from datetime import datetime
 from html import escape
 import io
 import os
+from routes.dashboard_router import AttemptPayload, create_attempt_row
 
 router = APIRouter(prefix="/cefr/listening", tags=["Listening"])
 
@@ -201,6 +202,23 @@ def submit_listening(
         "details": details,
         "partScores": part_scores,
     }
+
+    create_attempt_row(
+        db=db,
+        user_id=current_user.id,
+        payload=AttemptPayload(
+            exam_type="cefr_listening",
+            skill_area="listening",
+            mock_id=str(data.mock_id),
+            title=mock.title or f"CEFR Listening Mock #{data.mock_id}",
+            route_path=f"/mock/cefr/listening/{data.mock_id}",
+            score=total,
+            max_score=max_score,
+            score_percent=percentage,
+            clear_progress=True,
+            attempt_meta={"partScores": part_scores},
+        ),
+    )
 
     # Telegram archive (non-audio: HTML)
     try:

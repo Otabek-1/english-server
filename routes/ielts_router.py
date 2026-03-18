@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 from auth.auth import get_current_user, verify_role
 from database.db import IeltsSection, IeltsSubmission, IeltsTest, User, get_db
 from schemas.ielts_schema import IeltsModuleResult, IeltsOverview, IeltsSubmissionCreate, IeltsTestCreate, IeltsTestUpdate
+from routes.dashboard_router import AttemptPayload, create_attempt_row
 
 router = APIRouter(prefix="/ielts", tags=["IELTS"])
 
@@ -324,6 +325,24 @@ def submit_module(
     db.add(submission)
     db.commit()
     db.refresh(submission)
+
+    create_attempt_row(
+        db=db,
+        user_id=current_user.id,
+        payload=AttemptPayload(
+            exam_type=f"ielts_{module}",
+            skill_area=module if module in {"reading", "listening", "writing", "speaking"} else None,
+            mock_id=str(test_id),
+            title=f"IELTS {module.title()} - {section.title}",
+            route_path=f"/mock/ielts/{module}/{test_id}",
+            score=submission.score,
+            max_score=submission.max_score,
+            band=submission.band,
+            status="completed" if submission.score is not None else "pending_review",
+            clear_progress=True,
+            attempt_meta=submission.feedback or {},
+        ),
+    )
 
     return IeltsModuleResult(
         score=submission.score,

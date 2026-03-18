@@ -293,6 +293,45 @@ class IeltsSubmission(Base):
     test = relationship("IeltsTest", back_populates="submissions")
 
 
+class MockAttempt(Base):
+    __tablename__ = "mock_attempts"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    exam_type = Column(String(50), nullable=False, index=True)
+    skill_area = Column(String(20), nullable=True, index=True)
+    mock_id = Column(String(80), nullable=True)
+    title = Column(String(180), nullable=True)
+    route_path = Column(String(255), nullable=True)
+    score = Column(Integer, nullable=True)
+    max_score = Column(Integer, nullable=True)
+    score_percent = Column(Integer, nullable=True)
+    score_75 = Column(Integer, nullable=True)
+    band = Column(String(20), nullable=True)
+    status = Column(String(30), nullable=False, default="completed")
+    attempt_meta = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class MockProgress(Base):
+    __tablename__ = "mock_progress"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    exam_type = Column(String(50), nullable=False, index=True)
+    skill_area = Column(String(20), nullable=True, index=True)
+    mock_id = Column(String(80), nullable=True)
+    title = Column(String(180), nullable=True)
+    route_path = Column(String(255), nullable=False)
+    status = Column(String(30), nullable=False, default="active", index=True)
+    remaining_seconds = Column(Integer, nullable=True)
+    progress_state = Column(JSON, nullable=False, default=dict)
+    started_at = Column(DateTime, default=datetime.utcnow)
+    last_activity_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+
 Base.metadata.create_all(bind=engine)
 
 

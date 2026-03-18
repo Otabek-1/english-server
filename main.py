@@ -17,6 +17,7 @@ from routes.listening_router import router as listening_router
 from routes.permissions_router import router as perm_router
 from routes.session_router import router as session_router
 from routes.ielts_router import router as ielts_router
+from routes.dashboard_router import router as dashboard_router
 from services.email_service import send_email
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
@@ -60,6 +61,7 @@ app.include_router(listening_router)
 app.include_router(perm_router)
 app.include_router(session_router)
 app.include_router(ielts_router)
+app.include_router(dashboard_router)
 
 class mailModel(BaseModel):
     full_name:str

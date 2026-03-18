@@ -14,6 +14,7 @@ from supabase import create_client, Client
 from services.telegram_bot import send_audio_zip_to_telegram
 import requests
 from pydantic import BaseModel
+from routes.dashboard_router import AttemptPayload, create_attempt_row
 
 class MobileSingleAudio(BaseModel):
     mock_id: int
@@ -207,6 +208,21 @@ async def submit_speaking_result(
     db.commit()
     db.refresh(result)
 
+    create_attempt_row(
+        db=db,
+        user_id=current_user.id,
+        payload=AttemptPayload(
+            exam_type="cefr_speaking",
+            skill_area="speaking",
+            mock_id=str(mock_id),
+            title=f"CEFR Speaking Mock #{mock_id}",
+            route_path=f"/mock/cefr/speaking/{mock_id}",
+            status="pending_review",
+            attempt_meta={"result_id": result.id, "storage_type": "telegram_archive"},
+            clear_progress=True,
+        ),
+    )
+
     return {
         "message": "Submitted successfully",
         "result_id": result.id,
@@ -349,6 +365,21 @@ async def submit_speaking_result_mobile(
     db.add(result)
     db.commit()
     db.refresh(result)
+
+    create_attempt_row(
+        db=db,
+        user_id=current_user.id,
+        payload=AttemptPayload(
+            exam_type="cefr_speaking",
+            skill_area="speaking",
+            mock_id=str(mock_id),
+            title=f"CEFR Speaking Mock #{mock_id}",
+            route_path=f"/mock/cefr/speaking/{mock_id}",
+            status="pending_review",
+            attempt_meta={"result_id": result.id, "storage_type": "telegram_archive"},
+            clear_progress=True,
+        ),
+    )
 
     return {
         "message": "Submitted successfully from mobile",
