@@ -1,82 +1,101 @@
-from database.db import news, User, get_db
-from auth.auth import verify_role, get_current_user
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+
+from auth.auth import get_current_user, verify_role
+from database.db import get_db, news
 from schemas.news_schema import News, React
-from collections import defaultdict
 
 router = APIRouter(prefix="/news", tags=["News"])
 
+
 @router.get("/")
 def get_news(db: Session = Depends(get_db)):
-    res = db.query(news).all()
-    return res
+    return db.query(news).all()
+
 
 @router.get("/{slug}")
-def get_by_slug(slug:str,db: Session = Depends(get_db)):
+def get_by_slug(slug: str, db: Session = Depends(get_db)):
     res = db.query(news).filter(news.slug == slug).first()
     if not res:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
     return res
 
-def slugify(text: str):
-    letters="abcdefghijklmnopqrstuvwxyz"
-    res=""
-    for i in text:
-        if i.lower() in letters:
-            res+=i
-        elif i == " ":
-            res+="-"
-    return res
-    
+
+def slugify(text: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "-", text.strip().lower())
+    return normalized.strip("-") or "news"
+
+
+def build_unique_slug(db: Session, title: str, existing_id: int | None = None) -> str:
+    base_slug = slugify(title)
+    slug = base_slug
+    index = 2
+
+    while True:
+        query = db.query(news).filter(news.slug == slug)
+        if existing_id is not None:
+            query = query.filter(news.id != existing_id)
+        if not query.first():
+            return slug
+        slug = f"{base_slug}-{index}"
+        index += 1
+
+
 @router.post("/create")
-def create_news(data:News, db: Session = Depends(get_db), user= Depends(verify_role(["admin"]))):
-    new = news(title=data.title, body=data.body,slug=slugify(data.title))
+def create_news(
+    data: News,
+    db: Session = Depends(get_db),
+    _: object = Depends(verify_role(["admin"])),
+):
+    new = news(title=data.title, body=data.body, slug=build_unique_slug(db, data.title))
     db.add(new)
     db.commit()
     db.refresh(new)
     return new
 
+
 @router.put("/{id}")
-def update_new(id:int,data: News, db: Session = Depends(get_db), user = Depends(verify_role(['admin']))):
+def update_new(
+    id: int,
+    data: News,
+    db: Session = Depends(get_db),
+    _: object = Depends(verify_role(["admin"])),
+):
     exists = db.query(news).filter(news.id == id).first()
     if not exists:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
     exists.title = data.title
     exists.body = data.body
-    exists.slug = slugify(data.title)
+    exists.slug = build_unique_slug(db, data.title, existing_id=id)
     db.commit()
     db.refresh(exists)
     return exists
+
 
 @router.post("/react/{id}")
 def react(
     id: int,
     data: React,
     db: Session = Depends(get_db),
-    user = Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
-    # Yangilikni topish
     exists = db.query(news).filter(news.id == id).first()
     if not exists:
         raise HTTPException(status_code=404, detail="Not found.")
 
-    # reactions - dict bo'lishi kerak
-    reactions = exists.reactions or {}          # { "👍": [1,2], "❤️": [5], ... }
+    reactions = exists.reactions or {}
 
-    # 1️⃣ Barcha reactionlardan userni olib tashlaymiz (unreact)
-    for emoji, users in reactions.items():
+    for _, users in reactions.items():
         if user.id in users:
             users.remove(user.id)
 
-    # 2️⃣ Agar yangi emoji YAQINDA bosilgan bo‘lsa → unreact bo‘lgan, qaytadan qo‘shmaymiz
-    #    Ya'ni shu emoji ostida user bo‘lmasa, qo‘shib qo‘yamiz
     if user.id not in reactions.get(data.emoji, []):
-        # agar bu emoji hali yo‘q bo‘lsa → massiv ochamiz
         reactions.setdefault(data.emoji, [])
         reactions[data.emoji].append(user.id)
 
-    # Yangilash
     exists.reactions = reactions
     db.commit()
     db.refresh(exists)
@@ -85,10 +104,14 @@ def react(
 
 
 @router.delete("/{id}")
-def delete(id:int, db: Session = Depends(get_db), user = Depends(verify_role(['admin']))):
-    exists = db.query(news).filter(news.id==id).first()
+def delete(
+    id: int,
+    db: Session = Depends(get_db),
+    _: object = Depends(verify_role(["admin"])),
+):
+    exists = db.query(news).filter(news.id == id).first()
     if not exists:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found.")
     db.delete(exists)
     db.commit()
-    return {"message":"Success"}
+    return {"message": "Success"}

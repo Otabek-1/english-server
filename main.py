@@ -1,54 +1,61 @@
-from fastapi import FastAPI, Depends, HTTPException
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pathlib import Path
+from pydantic import BaseModel
+from sqlalchemy import desc, text
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
-from auth.router import router as auth_router
+from starlette.middleware.sessions import SessionMiddleware
+
 from auth.auth import get_current_user
-from routes.user import router as user_router
+from auth.router import router as auth_router
+from database.db import Feedback as FeedbackModel, SpeakingResult, User, WritingResult, get_db
+from routes.News import router as news_router
 from routes.ReadingMockQuestion import router as reading_routes
 from routes.WritingMock import router as writing_router
-from routes.notification_router import router as notification_routes
-from routes.News import router as news_router
-from routes.speaking_router import router as speaking_router
-from routes.tts_router import router as tts_router
+from routes.dashboard_router import router as dashboard_router
+from routes.ielts_router import router as ielts_router
 from routes.listening_router import router as listening_router
+from routes.notification_router import router as notification_routes
 from routes.permissions_router import router as perm_router
 from routes.session_router import router as session_router
-from routes.ielts_router import router as ielts_router
-from routes.dashboard_router import router as dashboard_router
+from routes.speaking_router import router as speaking_router
+from routes.tts_router import router as tts_router
+from routes.user import router as user_router
 from services.email_service import send_email
-from pydantic import BaseModel
-from starlette.middleware.sessions import SessionMiddleware
-from dotenv import load_dotenv
-from database.db import Feedback as FeedbackModel, SpeakingResult, WritingResult, get_db, User
-import os
 
+load_dotenv()
 
 app = FastAPI(title="Server")
-load_dotenv()
 
 _session_secret = os.getenv("SESSION_SECRET_KEY")
 if not _session_secret:
     raise ValueError(
         "SESSION_SECRET_KEY must be set in environment (e.g. a long random string)"
     )
+
 app.add_middleware(
     SessionMiddleware,
     secret_key=_session_secret,
 )
 
-# CORS ochiq — public route'lar (gTTS va b.) boshqa loyihalardan ham ishlatiladi
+allowed_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ALLOWED_ORIGINS", "*").split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins or ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ===== ROUTERS =====
 app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(reading_routes)
@@ -63,24 +70,49 @@ app.include_router(session_router)
 app.include_router(ielts_router)
 app.include_router(dashboard_router)
 
+
 class mailModel(BaseModel):
-    full_name:str
-    email:str
-    message:str
+    full_name: str
+    email: str
+    message: str
 
 
-
-# ===== STATIC FILES - Audio, Images, etc. =====
 uploads_path = Path("uploads")
 uploads_path.mkdir(exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
+
 @app.get("/")
 def root():
-    return {"message":"Server is live!"}
+    return {"message": "Server is live!"}
 
-@app.post('/contact')
-def contact(data:mailModel):
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "service": "mockstream-server"}
+
+
+@app.get("/health/ready")
+def readiness(db: Session = Depends(get_db)):
+    db.execute(text("SELECT 1"))
+    return {
+        "status": "ready",
+        "db": "ok",
+        "features": {
+            "google_oauth": bool(os.getenv("GOOGLE_CLIENT_ID") and os.getenv("GOOGLE_CLIENT_SECRET")),
+            "gemini": bool(os.getenv("GEMINI_API_KEY")),
+            "supabase": bool(os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_KEY")),
+            "mailjet": bool(
+                os.getenv("MAILJET_API_KEY")
+                and os.getenv("MAILJET_API_SECRET")
+                and os.getenv("MAILJET_SENDER_EMAIL")
+            ),
+        },
+    }
+
+
+@app.post("/contact")
+def contact(data: mailModel):
     msg = f"""
     Full name: {data.full_name}
     <br><br><br>
@@ -88,9 +120,15 @@ def contact(data:mailModel):
     <br><br><br>
     Message: {data.message}
     """
-    
+
     contact_email = os.getenv("CONTACT_EMAIL", "davirbekkhasanov02@gmail.com")
-    send_email(to_email=contact_email, subject=f"Message from {data.full_name}", message=msg)
+    success, detail = send_email(
+        to_email=contact_email,
+        subject=f"Message from {data.full_name}",
+        message=msg,
+    )
+    if not success:
+        raise HTTPException(status_code=503, detail=f"Email service unavailable: {detail}")
     return {"success": True}
 
 
@@ -108,11 +146,13 @@ def get_key(data: keyData):
         raise HTTPException(status_code=503, detail="Gemini API key not configured")
     return {"key": gemini_key}
 
-class FeedbackCreate(BaseModel):
-    text:str
-    rating:int
 
-@app.post('/feedback')
+class FeedbackCreate(BaseModel):
+    text: str
+    rating: int
+
+
+@app.post("/feedback")
 def create_feedback(
     data: FeedbackCreate,
     db: Session = Depends(get_db),
@@ -136,7 +176,8 @@ def create_feedback(
         "user_id": feedback.user_id,
     }
 
-@app.get('/feedback/me')
+
+@app.get("/feedback/me")
 def get_my_feedback_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -163,7 +204,8 @@ def get_my_feedback_status(
         ],
     }
 
-@app.get('/feedback/public')
+
+@app.get("/feedback/public")
 def get_public_feedbacks(
     limit: int = 12,
     db: Session = Depends(get_db),

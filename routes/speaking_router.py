@@ -1,4 +1,4 @@
-from database.db import SpeakingMock, SpeakingResult, User
+﻿from database.db import SpeakingMock, SpeakingResult, User
 from fastapi import APIRouter, Depends, HTTPException, status, Form, UploadFile, File
 from sqlalchemy.orm import Session
 from auth.auth import verify_role, get_current_user
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/mock/speaking", tags=["Speaking", "Mock", "CEFR"])
 # ===== SUPABASE CLIENT =====
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+supabase: Client | None = create_client(SUPABASE_URL, SUPABASE_KEY) if SUPABASE_URL and SUPABASE_KEY else None
 BUCKET_NAME = "speaking-audios"
 
 
@@ -131,6 +131,9 @@ async def submit_speaking_result(
     # 3. Timestamp va folder path
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     folder_name = f"user{current_user.id}_mock{mock_id}_{timestamp}"
+
+    if supabase is None:
+        raise HTTPException(status_code=503, detail="Speaking storage is not configured")
     
     # 4. Supabase'ga upload qilish
     recordings_data = {}
@@ -159,24 +162,24 @@ async def submit_speaking_result(
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
     # 5. Agar non-premium bo'lsa, ZIP yaratib Telegramga yuborish
-    if not is_premium or is_premium:
+    if not is_premium:
         try:
             # ZIP memory'da yaratish
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
                 for key, url in recordings_data.items():
                     # URL'dan audio download qilish
-                    response = requests.get(url)
+                    response = requests.get(url, timeout=15)
                     if response.status_code == 200:
                         zf.writestr(f"{key}.webm", response.content)
             
             zip_buffer.seek(0)
             
             caption = (
-                f"📱 Non-premium Submission\n"
-                f"👤 User ID: {current_user.id}\n"
-                f"📝 Mock ID: {mock_id}\n"
-                f"⏰ Time: {timestamp}"
+                f"ğŸ“± Non-premium Submission\n"
+                f"ğŸ‘¤ User ID: {current_user.id}\n"
+                f"ğŸ“ Mock ID: {mock_id}\n"
+                f"â° Time: {timestamp}"
             )
             send_audio_zip_to_telegram(zip_buffer, caption=caption)
         
@@ -270,6 +273,9 @@ async def submit_speaking_result_mobile(
     # 3. Timestamp va folder path
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     folder_name = f"user{current_user.id}_mock{mock_id}_{timestamp}"
+
+    if supabase is None:
+        raise HTTPException(status_code=503, detail="Speaking storage is not configured")
     
     # 4. Supabase'ga upload qilish (base64 dan)
     recordings_data = {}
@@ -293,10 +299,10 @@ async def submit_speaking_result_mobile(
                 public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(file_path)
                 recordings_data[audio_data.question_id] = public_url
                 
-                print(f"✅ Uploaded: {safe_filename}")
+                print(f"âœ… Uploaded: {safe_filename}")
             
             except Exception as audio_err:
-                print(f"❌ Error uploading {audio_data.question_id}: {audio_err}")
+                print(f"âŒ Error uploading {audio_data.question_id}: {audio_err}")
                 # Continue with other files
                 continue
     
@@ -305,36 +311,36 @@ async def submit_speaking_result_mobile(
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
     # 5. Agar non-premium bo'lsa, ZIP yaratib Telegramga yuborish
-    if not is_premium or is_premium:
+    if not is_premium:
         try:
             # ZIP memory'da yaratish
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
                 total_files = len(recordings_data)
-                print(f"📦 ZIP creatingda {total_files} fayl bor")
+                print(f"ğŸ“¦ ZIP creatingda {total_files} fayl bor")
                 
                 for idx, (key, url) in enumerate(recordings_data.items(), 1):
                     try:
-                        print(f"⬇️  Downloading file {idx}/{total_files}: {key}")
+                        print(f"â¬‡ï¸  Downloading file {idx}/{total_files}: {key}")
                         # URL'dan audio download qilish
                         response = requests.get(url, timeout=30)
                         if response.status_code == 200:
                             zf.writestr(f"{key}.m4a", response.content)
-                            print(f"✅ Added to ZIP: {key}.m4a")
+                            print(f"âœ… Added to ZIP: {key}.m4a")
                         else:
-                            print(f"⚠️  {key}: HTTP {response.status_code}")
+                            print(f"âš ï¸  {key}: HTTP {response.status_code}")
                     except requests.exceptions.Timeout:
-                        print(f"❌ Timeout for {key}")
+                        print(f"âŒ Timeout for {key}")
                     except Exception as download_err:
-                        print(f"❌ Error downloading {key}: {download_err}")
+                        print(f"âŒ Error downloading {key}: {download_err}")
             
             zip_buffer.seek(0)
             
             caption = (
-                f"📱 Mobile {'Premium user' if is_premium else 'Non-premium'} Submission\n"
-                f"👤 User ID: {current_user.id}\n"
-                f"📝 Mock ID: {mock_id}\n"
-                f"⏰ Time: {timestamp}"
+                f"ğŸ“± Mobile {'Premium user' if is_premium else 'Non-premium'} Submission\n"
+                f"ğŸ‘¤ User ID: {current_user.id}\n"
+                f"ğŸ“ Mock ID: {mock_id}\n"
+                f"â° Time: {timestamp}"
             )
             send_audio_zip_to_telegram(zip_buffer, caption=caption)
         
@@ -538,30 +544,30 @@ def check_result(
 
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
                 total_files = len(result.recordings["audios"])
-                print(f"📦 ZIP creatingda {total_files} fayl bor")
+                print(f"ğŸ“¦ ZIP creatingda {total_files} fayl bor")
                 
                 for idx, (key, url) in enumerate(result.recordings["audios"].items(), 1):
                     try:
-                        print(f"⬇️  Downloading file {idx}/{total_files}: {key}")
+                        print(f"â¬‡ï¸  Downloading file {idx}/{total_files}: {key}")
                         r = requests.get(url, timeout=30)
                         if r.status_code == 200:
                             zf.writestr(f"{key}.webm", r.content)
-                            print(f"✅ Added to ZIP: {key}.webm")
+                            print(f"âœ… Added to ZIP: {key}.webm")
                         else:
-                            print(f"⚠️  {key}: HTTP {r.status_code}")
+                            print(f"âš ï¸  {key}: HTTP {r.status_code}")
                     except requests.exceptions.Timeout:
-                        print(f"❌ Timeout for {key} (URL: {url[:50]}...)")
+                        print(f"âŒ Timeout for {key} (URL: {url[:50]}...)")
                     except Exception as download_err:
-                        print(f"❌ Error downloading {key}: {download_err}")
+                        print(f"âŒ Error downloading {key}: {download_err}")
 
             zip_buffer.seek(0)
 
             caption = (
-                f"✅ Speaking Checked\n"
-                f"👤 User ID: {result.user_id}\n"
-                f"📝 Mock ID: {result.mock_id}\n"
-                f"🏆 Band: {evaluation.get('band')}\n"
-                f"📊 Total: {evaluation.get('scores', {}).get('total')}/40"
+                f"âœ… Speaking Checked\n"
+                f"ğŸ‘¤ User ID: {result.user_id}\n"
+                f"ğŸ“ Mock ID: {result.mock_id}\n"
+                f"ğŸ† Band: {evaluation.get('band')}\n"
+                f"ğŸ“Š Total: {evaluation.get('scores', {}).get('total')}/40"
             )
 
             send_audio_zip_to_telegram(zip_buffer, caption)
@@ -569,7 +575,7 @@ def check_result(
         except Exception as e:
             print("Telegram ZIP error:", e)
 
-    # ===== 2. SUPABASE'DAN FOLDER + FILE'LARNI O‘CHIRISH =====
+    # ===== 2. SUPABASE'DAN FOLDER + FILE'LARNI Oâ€˜CHIRISH =====
     folder_name = result.recordings.get("folder") if result.recordings else None
 
     if folder_name:
@@ -603,7 +609,7 @@ def check_result(
         <html>
         <body style="font-family: Arial, sans-serif; background:#f5f5f5;">
           <div style="max-width:700px;margin:auto;background:#fff;padding:30px;border-radius:8px;">
-            <h2 style="color:#3498db;">🎤 Speaking Mock Evaluation</h2>
+            <h2 style="color:#3498db;">ğŸ¤ Speaking Mock Evaluation</h2>
 
             <p><strong>Mock ID:</strong> {result.mock_id}</p>
             <p><strong>Overall Band:</strong> {evaluation.get('band')}</p>
@@ -630,7 +636,7 @@ def check_result(
               Your audio recordings have been securely reviewed and removed from storage.
             </p>
 
-            <p style="font-size:12px;color:#aaa;">© 2025 MockStream</p>
+            <p style="font-size:12px;color:#aaa;">Â© 2025 MockStream</p>
           </div>
         </body>
         </html>
@@ -639,7 +645,7 @@ def check_result(
         try:
             send_email(
                 result_user.email,
-                f"🎤 Speaking Mock #{result.mock_id} – Evaluation Result",
+                f"ğŸ¤ Speaking Mock #{result.mock_id} â€“ Evaluation Result",
                 email_html
             )
         except Exception as e:
@@ -687,3 +693,4 @@ def get_mock_statistics(
         "pending": pending,
         "average_score": round(avg_score, 2)
     }
+

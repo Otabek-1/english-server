@@ -1,27 +1,35 @@
 import os
-from dotenv import load_dotenv
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, func, ForeignKey, ARRAY, JSON
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
+
+from dotenv import load_dotenv
+from sqlalchemy import ARRAY, JSON, Boolean, Column, DateTime, ForeignKey, Integer, String, create_engine, func
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship, sessionmaker
 
 load_dotenv()
 
-engine = create_engine(url=os.getenv("DATABASE_URL"))
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL must be set before importing database models")
+
+engine = create_engine(
+    url=DATABASE_URL,
+    pool_pre_ping=True,
+)
 Base = declarative_base()
-SessionLocal = sessionmaker(bind=engine)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
 
 class User(Base):
     __tablename__ = "users"
-    
+
     id = Column(Integer, primary_key=True)
     username = Column(String(20), unique=True)
     email = Column(String(100), unique=True)
     role = Column(String(10), default="user")
 
-    password = Column(String(255), nullable=True)   # Google userlarda NULL bo‘ladi
+    password = Column(String(255), nullable=True)
     google_avatar = Column(String, nullable=True)
-
     premium_duration = Column(DateTime, nullable=True, default=None)
 
     notifications = relationship("Notification", back_populates="user")
@@ -44,29 +52,27 @@ class PasswordResetCode(Base):
     user = relationship("User", back_populates="password_reset_codes")
 
 
-
-
 class SpeakingMock(Base):
     __tablename__ = "speaking_mocks"
-    
+
     id = Column(Integer, primary_key=True)
-    title = Column(String(100))  # Mock 1, Mock 2, etc.
-    questions = Column(JSON)  # 8ta question: {1.1: [...], 1.2: [...], 2: [...], 3: [...]}
+    title = Column(String(100))
+    questions = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow())
-    
+
     results = relationship("SpeakingResult", back_populates="mock")
 
 
 class SpeakingResult(Base):
     __tablename__ = "speaking_results"
-    
+
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     mock_id = Column(Integer, ForeignKey("speaking_mocks.id"))
-    recordings = Column(JSON)  # {q1: url, q2: url, q3: url, ..., q8: url}
-    total_duration = Column(Integer)  # total exam duration in seconds
+    recordings = Column(JSON)
+    total_duration = Column(Integer)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+
     user = relationship("User", back_populates="speaking_results")
     mock = relationship("SpeakingMock", back_populates="results")
 
@@ -137,32 +143,27 @@ class Notification(Base):
 
 class news(Base):
     __tablename__ = "news"
-    
+
     id = Column(Integer, primary_key=True)
     title = Column(String)
     body = Column(String)
     slug = Column(String)
     reactions = Column(JSON(String))
     created_at = Column(DateTime(timezone=True), default=func.now())
-    
+
+
 class ListeningMock(Base):
     __tablename__ = "listening_mocks"
 
     id = Column(Integer, primary_key=True)
     title = Column(String(100), nullable=False)
-
-    # === SAVOLLAR DATA ===
     data = Column(JSON, nullable=False)
-    # bu yerga SEN BERGAN `data` object 1:1 tushadi
-
-    # === AUDIO URLS (HAR PART UCHUN ALOHIDA) ===
     audio_part_1 = Column(String, nullable=True)
     audio_part_2 = Column(String, nullable=True)
     audio_part_3 = Column(String, nullable=True)
     audio_part_4 = Column(String, nullable=True)
     audio_part_5 = Column(String, nullable=True)
     audio_part_6 = Column(String, nullable=True)
-
     created_at = Column(DateTime, default=datetime.utcnow)
 
     answers = relationship(
@@ -170,6 +171,7 @@ class ListeningMock(Base):
         back_populates="mock",
         uselist=False
     )
+
 
 class ListeningMockAnswer(Base):
     __tablename__ = "listening_mock_answers"
@@ -180,54 +182,38 @@ class ListeningMockAnswer(Base):
         ForeignKey("listening_mocks.id", ondelete="CASCADE"),
         unique=True
     )
-
-    # === PART 1 (1–8) ===
     part_1 = Column(ARRAY(String), nullable=False)
-    # ["A", "C", "B", "A", "C", "B", "A", "C"]
-
-    # === PART 2 (9–14) ===
     part_2 = Column(ARRAY(String), nullable=False)
-    # ["Saturday", "two", "director", "three", "15", "online"]
-
-    # === PART 3 (15–18) ===
     part_3 = Column(ARRAY(String), nullable=False)
-    # ["A", "C", "F", "B"]
-
-    # === PART 4 (19–23) ===
     part_4 = Column(ARRAY(String), nullable=False)
-    # ["C", "A", "D", "B", "E"]
-
-    # === PART 5 (24–29) ===
     part_5 = Column(ARRAY(String), nullable=False)
-    # ["workman and customer", "has a change of mind", ...]
-
-    # === PART 6 (30–35) ===
     part_6 = Column(ARRAY(String), nullable=False)
-    # ["universal", "remove", "evidence", "claim", "gesture", "symbol"]
-
     created_at = Column(DateTime, default=datetime.utcnow)
 
     mock = relationship("ListeningMock", back_populates="answers")
 
+
 class Permissions(Base):
     __tablename__ = "permissions"
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer,ForeignKey("users.id",ondelete="CASCADE"))
-    
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
     permissions = Column(JSON(String))
 
+
 class Feedback(Base):
-    __tablename__='feedbacks'
+    __tablename__ = 'feedbacks'
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id",ondelete="CASCADE"))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
     rating = Column(Integer)
     text = Column(String)
 
+
 class Submissions(Base):
-    __tablename__="submissions"
+    __tablename__ = "submissions"
     id = Column(Integer, primary_key=True)
     username = Column(String)
     section = Column(String)
+
 
 class IeltsTest(Base):
     __tablename__ = "ielts_tests"
@@ -235,7 +221,7 @@ class IeltsTest(Base):
     id = Column(Integer, primary_key=True)
     title = Column(String(160), nullable=False)
     description = Column(String, nullable=True)
-    exam_track = Column(String(20), nullable=False, default="academic")  # academic/general
+    exam_track = Column(String(20), nullable=False, default="academic")
     level = Column(String(20), nullable=True, default="Band 5-7")
     duration_minutes = Column(Integer, nullable=False, default=165)
     is_published = Column(Boolean, nullable=False, default=False)
@@ -263,7 +249,7 @@ class IeltsSection(Base):
 
     id = Column(Integer, primary_key=True)
     test_id = Column(Integer, ForeignKey("ielts_tests.id", ondelete="CASCADE"), nullable=False)
-    module = Column(String(20), nullable=False)  # reading/listening/writing/speaking
+    module = Column(String(20), nullable=False)
     title = Column(String(160), nullable=False)
     instructions = Column(String, nullable=True)
     duration_minutes = Column(Integer, nullable=False, default=30)
@@ -332,7 +318,9 @@ class MockProgress(Base):
     completed_at = Column(DateTime, nullable=True)
 
 
-Base.metadata.create_all(bind=engine)
+AUTO_CREATE_DB = os.getenv("AUTO_CREATE_DB", "true").strip().lower() in {"1", "true", "yes", "on"}
+if AUTO_CREATE_DB:
+    Base.metadata.create_all(bind=engine)
 
 
 def get_db():
