@@ -318,6 +318,27 @@ class MockProgress(Base):
     completed_at = Column(DateTime, nullable=True)
 
 
+class RequestAuditLog(Base):
+    __tablename__ = "request_audit_logs"
+
+    id = Column(Integer, primary_key=True)
+    method = Column(String(12), nullable=False, index=True)
+    path = Column(String(255), nullable=False, index=True)
+    query_string = Column(String, nullable=True)
+    full_url = Column(String, nullable=True)
+    status_code = Column(Integer, nullable=False, index=True)
+    client_ip = Column(String(64), nullable=True, index=True)
+    forwarded_for = Column(String(255), nullable=True)
+    host = Column(String(255), nullable=True)
+    origin = Column(String(255), nullable=True, index=True)
+    referer = Column(String, nullable=True)
+    user_agent = Column(String, nullable=True)
+    scheme = Column(String(16), nullable=True)
+    request_headers = Column(JSON, nullable=False, default=dict)
+    risk_flags = Column(JSON, nullable=False, default=list)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
 AUTO_CREATE_DB = os.getenv("AUTO_CREATE_DB", "true").strip().lower() in {"1", "true", "yes", "on"}
 if AUTO_CREATE_DB:
     Base.metadata.create_all(bind=engine)

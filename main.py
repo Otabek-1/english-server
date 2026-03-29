@@ -1,9 +1,11 @@
 import os
 from pathlib import Path
+from time import perf_counter
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import desc, text
@@ -23,9 +25,12 @@ from routes.notification_router import router as notification_routes
 from routes.permissions_router import router as perm_router
 from routes.session_router import router as session_router
 from routes.speaking_router import router as speaking_router
+from routes.traffic_monitor_router import router as traffic_monitor_router
 from routes.tts_router import router as tts_router
 from routes.user import router as user_router
 from services.email_service import send_email
+from services.request_monitor import create_audit_log, extract_client_ip, should_skip_logging
+from database.db import SessionLocal
 
 load_dotenv()
 
@@ -69,6 +74,7 @@ app.include_router(perm_router)
 app.include_router(session_router)
 app.include_router(ielts_router)
 app.include_router(dashboard_router)
+app.include_router(traffic_monitor_router)
 
 
 class mailModel(BaseModel):
@@ -85,6 +91,56 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 @app.get("/")
 def root():
     return {"message": "Server is live!"}
+
+
+@app.middleware("http")
+async def request_audit_middleware(request, call_next):
+    started_at = perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        response = Response(status_code=500)
+        raise
+    finally:
+        elapsed_ms = round((perf_counter() - started_at) * 1000, 2)
+        path = request.url.path
+        if not should_skip_logging(path):
+            headers = {key.lower(): value for key, value in request.headers.items()}
+            client_ip, forwarded_for = extract_client_ip(headers, request.client.host if request.client else None)
+            db = SessionLocal()
+            try:
+                try:
+                    create_audit_log(
+                        db,
+                        method=request.method,
+                        path=path,
+                        query_string=request.url.query,
+                        full_url=str(request.url),
+                        status_code=response.status_code,
+                        client_ip=client_ip,
+                        forwarded_for=forwarded_for,
+                        host=headers.get("host"),
+                        origin=headers.get("origin"),
+                        referer=headers.get("referer"),
+                        user_agent=headers.get("user-agent"),
+                        scheme=request.url.scheme,
+                        request_headers={
+                            "origin": headers.get("origin"),
+                            "referer": headers.get("referer"),
+                            "host": headers.get("host"),
+                            "x_forwarded_for": forwarded_for,
+                            "x_real_ip": headers.get("x-real-ip"),
+                            "sec_fetch_site": headers.get("sec-fetch-site"),
+                            "sec_fetch_mode": headers.get("sec-fetch-mode"),
+                            "content_type": headers.get("content-type"),
+                            "authorization_present": bool(headers.get("authorization")),
+                            "request_time_ms": elapsed_ms,
+                        },
+                    )
+                except Exception:
+                    db.rollback()
+            finally:
+                db.close()
 
 
 @app.get("/health")
